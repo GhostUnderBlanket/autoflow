@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { getVersion } from '@tauri-apps/api/app';
 import { Check, RotateCcw, Globe, AlertTriangle, FolderOpen, Eye, EyeOff, RefreshCw, Download } from 'lucide-react';
 import { check as checkForUpdate, type Update } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
@@ -470,6 +471,11 @@ type UpdateCheckState =
 function AboutSection() {
   const { reset } = useSettingsStore();
   const [upd, setUpd] = useState<UpdateCheckState>({ kind: 'idle' });
+  const [appVersion, setAppVersion] = useState<string>('…');
+
+  useEffect(() => {
+    getVersion().then(setAppVersion).catch(() => setAppVersion('?'));
+  }, []);
 
   async function handleCheck() {
     setUpd({ kind: 'checking' });
@@ -503,7 +509,7 @@ function AboutSection() {
     <div style={{ animation: 'fade-up 0.22s ease both' }}>
       <SectionHead
         title="About"
-        description="autoflow v0.2.0 · Tauri v2 · React 19 · @xyflow/react · Tailwind CSS v4"
+        description={`autoflow v${appVersion} · Tauri v2 · React 19 · @xyflow/react · Tailwind CSS v4`}
       />
 
       {/* Update checker */}
@@ -515,7 +521,7 @@ function AboutSection() {
               {upd.kind === 'uptodate'   && <span className="text-success">✓ You're on the latest version.</span>}
               {upd.kind === 'available'  && <span className="text-accent-soft">v{upd.version} is available.</span>}
               {upd.kind === 'error'      && <span className="text-danger font-mono">{upd.msg}</span>}
-              {upd.kind === 'idle'       && 'Current version: 0.1.0'}
+              {upd.kind === 'idle'       && `Current version: ${appVersion}`}
               {upd.kind === 'checking'   && <span className="text-ink-ghost">Checking…</span>}
               {upd.kind === 'downloading'&& <span className="text-ink-ghost">Downloading and installing…</span>}
             </p>
