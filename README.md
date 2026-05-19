@@ -10,11 +10,17 @@ A lightweight desktop app for building and running visual automation flows — n
 ## What It Does
 
 - **Visual flow editor** — drag-and-drop node graph to wire up automation steps
-- **Node types** — Trigger (manual / cron schedule), Polaris REST API, Script (cmd / PowerShell / bash), Condition branch
+- **Node types** — Trigger (manual / cron schedule), REST API (GET/POST/PUT/PATCH/DELETE), Script (cmd / PowerShell / bash), Condition branch
+- **Flow variables** — define key-value pairs on the flow and reference them with `${var:NAME}` in any node field
+- **Flow tags** — tag flows for filtering and organisation
 - **Flow runner** — executes nodes in topological order, streams output in a live log panel
 - **Cron scheduler** — Rust-side `tokio-cron-scheduler` fires flows on schedule even when the window is hidden
-- **System tray** — minimize to tray, desktop notifications for background runs
-- **Run Log** — full execution history persisted across restarts, filterable and exportable
+- **Arm / disarm** — enable or disable a scheduled flow directly from the home page card
+- **Run health** — weather icon on each card shows success rate of the last 5 runs
+- **In-app toasts** — completion notifications for all run types with one-click log navigation
+- **System tray** — minimize to tray, OS desktop notifications for background runs
+- **Run Log** — full execution history, filterable and exportable
+- **Light / dark theme** — toggle in Settings → Window & Tray
 - **Auto-update** — checks GitHub Releases on startup; one-click install from Settings → About
 
 ## Tech Stack
@@ -44,22 +50,23 @@ npm run tauri build    # production build + installer
 Push a `v*` tag — GitHub Actions builds, signs, and publishes the release automatically:
 
 ```bash
-# bump version in package.json + src-tauri/Cargo.toml + src-tauri/tauri.conf.json
-git add -A && git commit -m "Release v0.2.0"
-git tag v0.2.0
-git push && git push origin v0.2.0
+# Bump version in package.json + src-tauri/Cargo.toml + src-tauri/tauri.conf.json
+git add -A && git commit -m "Release v0.x.0"
+git tag v0.x.0
+git push && git push origin v0.x.0
 ```
 
 ## Node Types
 
 | Node | Purpose |
 |---|---|
-| **Trigger** | Starts the flow — manually or on a cron schedule |
-| **Polaris** | HTTP request (GET/POST/PUT/PATCH/DELETE) with form or raw-JSON body |
+| **Trigger** | Starts the flow — manually or on a cron schedule (one per flow) |
+| **REST API** | HTTP request with form-row or raw-JSON body; per-node token override |
 | **Script** | Inline cmd / PowerShell / bash script |
 | **Condition** | Branches flow on a condition; true/false edges route downstream nodes |
 
-Downstream nodes reference upstream output with `${node-id}` or `${prev}`.
+Downstream nodes reference upstream output with `${node-id}` or `${prev}`.  
+Flow variables are referenced with `${var:NAME}`.
 
 ## License
 

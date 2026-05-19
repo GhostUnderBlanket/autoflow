@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { X, Timer, Globe, Terminal, GitBranch, Plus, Minus, Check, AlertTriangle, Play, Loader2 } from 'lucide-react';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import { useSettingsStore } from '../store/settingsStore';
+import { interpolate } from '../lib/interpolate';
 import { clsx } from 'clsx';
 import type { Node, Edge } from '@xyflow/react';
 import type { ReactNode } from 'react';
@@ -13,11 +14,12 @@ import { getUpstreamNodes } from '../lib/graphRefs';
 import type { BodyRow } from '../lib/executor';
 
 interface NodePanelProps {
-  node:     Node | undefined;
-  nodes:    Node[];
-  edges:    Edge[];
-  onUpdate: (id: string, data: Record<string, unknown>) => void;
-  onClose:  () => void;
+  node:           Node | undefined;
+  nodes:          Node[];
+  edges:          Edge[];
+  onUpdate:       (id: string, data: Record<string, unknown>) => void;
+  onClose:        () => void;
+  flowVariables?: Record<string, string>;
 }
 
 const CFG = {
@@ -237,12 +239,13 @@ function coerceValue(raw: string): unknown {
 }
 
 function RestFields({
-  data, nodeId, upstream, onUpdate,
+  data, nodeId, upstream, onUpdate, flowVariables,
 }: {
-  data: Record<string, unknown>;
-  nodeId: string;
-  upstream: ReturnType<typeof getUpstreamNodes>;
-  onUpdate: (id: string, data: Record<string, unknown>) => void;
+  data:           Record<string, unknown>;
+  nodeId:         string;
+  upstream:       ReturnType<typeof getUpstreamNodes>;
+  onUpdate:       (id: string, data: Record<string, unknown>) => void;
+  flowVariables?: Record<string, string>;
 }) {
   const method   = (((data.method as string) || 'POST').toUpperCase()) as Method;
   const endpoint = (data.endpoint as string) ?? '';
@@ -259,8 +262,10 @@ function RestFields({
     setTestResult(null);
     try {
       const settings = useSettingsStore.getState().settings;
+      const varCtx   = { results: new Map(), parents: [], variables: flowVariables ?? {} };
+      const interp   = (s: string) => interpolate(s, varCtx);
       const baseUrl  = (settings.restBaseUrl || '').replace(/\/+$/, '');
-      const ep       = endpoint.trim().replace(/^\/+/, '');
+      const ep       = interp(endpoint).trim().replace(/^\/+/, '');
       if (!baseUrl) {
         setTestResult({ ok: false, status: 'Config error', body: 'Base URL not set in Settings → REST API' });
         setTestState('err');
@@ -281,7 +286,7 @@ function RestFields({
         if (bodyMode === 'form') {
           const obj: Record<string, unknown> = {};
           for (const r of rows.filter(r => (r.key ?? '').trim())) {
-            obj[(r.key ?? '').trim()] = coerceValue(r.value ?? '');
+            obj[(r.key ?? '').trim()] = coerceValue(interp(r.value ?? ''));
           }
           bodyText = JSON.stringify(obj);
         } else if (body.trim()) {
@@ -361,6 +366,7 @@ function RestFields({
           value={endpoint}
           onChange={v => set('endpoint', v)}
           upstream={upstream}
+          flowVariables={flowVariables}
           placeholder="endpoint"
         />
         <p className="text-[10px] text-ink-ghost mt-1.5 leading-relaxed font-mono">
@@ -399,6 +405,7 @@ function RestFields({
                     value={r.value}
                     onChange={v => updateRow(i, { value: v })}
                     upstream={upstream}
+                    flowVariables={flowVariables}
                     placeholder="value or ${node-id}"
                   />
                   <button
@@ -430,6 +437,7 @@ function RestFields({
                 value={body}
                 onChange={v => set('body', v)}
                 upstream={upstream}
+                flowVariables={flowVariables}
                 multiline
                 rows={8}
                 placeholder={'{\n  "key": "value",\n  "ref": "${node-id}"\n}'}
@@ -513,11 +521,12 @@ const COND_OPS = [
 ] as const;
 
 function ConditionFields({
-  data, upstream, set,
+  data, upstream, set, flowVariables,
 }: {
-  data: Record<string, unknown>;
-  upstream: ReturnType<typeof getUpstreamNodes>;
-  set: (key: string, value: unknown) => void;
+  data:           Record<string, unknown>;
+  upstream:       ReturnType<typeof getUpstreamNodes>;
+  set:            (key: string, value: unknown) => void;
+  flowVariables?: Record<string, string>;
 }) {
   const op  = (data.op as string) || 'nonempty';
   const opCfg = COND_OPS.find(o => o.value === op);
@@ -530,6 +539,7 @@ function ConditionFields({
           value={source}
           onChange={v => set('source', v)}
           upstream={upstream}
+          flowVariables={flowVariables}
           placeholder="${prev}"
         />
         <p className="text-[10px] text-ink-ghost mt-1.5 leading-relaxed">
@@ -554,6 +564,7 @@ function ConditionFields({
             value={(data.value as string) ?? ''}
             onChange={v => set('value', v)}
             upstream={upstream}
+            flowVariables={flowVariables}
             placeholder={op === 'matches' ? '^EXISTS$' : 'exact value to match'}
           />
         </div>
@@ -571,7 +582,7 @@ function ConditionFields({
 
 /* ─── NodePanel ──────────────────────────────── */
 
-export function NodePanel({ node, nodes, edges, onUpdate, onClose }: NodePanelProps) {
+export function NodePanel({ node, nodes, edges, onUpdate, onClose, flowVariables }: NodePanelProps) {
   if (!node) return null;
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   const safeNode = node!;
@@ -667,7 +678,7 @@ export function NodePanel({ node, nodes, edges, onUpdate, onClose }: NodePanelPr
 
         {/* ── REST API ──────────────────────── */}
         {type === 'rest' && (
-          <RestFields data={data} nodeId={safeNode.id} upstream={upstream} onUpdate={onUpdate} />
+          <RestFields data={data} nodeId={safeNode.id} upstream={upstream} onUpdate={onUpdate} flowVariables={flowVariables} />
         )}
 
         {/* ── Script ────────────────────────── */}
@@ -687,6 +698,7 @@ export function NodePanel({ node, nodes, edges, onUpdate, onClose }: NodePanelPr
                 value={(data.script as string) ?? ''}
                 onChange={v => set('script', v)}
                 upstream={upstream}
+                flowVariables={flowVariables}
                 multiline
                 rows={5}
                 placeholder={'echo Hello World'}
@@ -698,6 +710,7 @@ export function NodePanel({ node, nodes, edges, onUpdate, onClose }: NodePanelPr
                 value={(data.workDir as string) ?? ''}
                 onChange={v => set('workDir', v)}
                 upstream={upstream}
+                flowVariables={flowVariables}
                 placeholder="Leave empty for default"
               />
             </div>
@@ -706,7 +719,7 @@ export function NodePanel({ node, nodes, edges, onUpdate, onClose }: NodePanelPr
 
         {/* ── Condition ─────────────────────── */}
         {type === 'condition' && (
-          <ConditionFields data={data} upstream={upstream} set={set} />
+          <ConditionFields data={data} upstream={upstream} set={set} flowVariables={flowVariables} />
         )}
 
       </div>

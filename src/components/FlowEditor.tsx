@@ -1,9 +1,10 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   ReactFlow,
   Background,
   BackgroundVariant,
-  Controls,
+  Panel,
+  useReactFlow,
   useNodesState,
   useEdgesState,
   addEdge,
@@ -14,7 +15,8 @@ import {
 } from '@xyflow/react';
 import {
   ArrowLeft, Plus, Save, Play, Square, Undo2, Redo2,
-  Timer, Globe, Terminal, GitBranch, ChevronDown,
+  Timer, Globe, Terminal, GitBranch, ChevronDown, X,
+  ZoomIn, ZoomOut, Maximize2,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useFlowStore } from '../store/flowStore';
@@ -24,6 +26,7 @@ import { runFlow, type RunHandle } from '../lib/executor';
 import { nodeTypes } from './nodes';
 import { NodePanel } from './NodePanel';
 import { LogPanel } from './LogPanel';
+import { FlowVarsPanel } from './FlowVarsPanel';
 import type { FlowNode, FlowEdge, LogEntry, NodeKind } from '../types/flow';
 
 /* ─── Helpers ────────────────────────────────── */
@@ -99,14 +102,14 @@ const MAX_HIST = 50;
 
 interface ToolbarProps {
   flowName: string; isRunning: boolean; isDirty: boolean;
-  canUndo: boolean; canRedo: boolean;
+  canUndo: boolean; canRedo: boolean; hasTrigger: boolean;
   onBack: () => void; onNameChange: (v: string) => void;
   onAddNode: (t: NodeKind) => void;
   onSave: () => void; onRun: () => void; onStop: () => void;
   onUndo: () => void; onRedo: () => void;
 }
 
-function Toolbar({ flowName, isRunning, isDirty, canUndo, canRedo, onBack, onNameChange, onAddNode, onSave, onRun, onStop, onUndo, onRedo }: ToolbarProps) {
+function Toolbar({ flowName, isRunning, isDirty, canUndo, canRedo, hasTrigger, onBack, onNameChange, onAddNode, onSave, onRun, onStop, onUndo, onRedo }: ToolbarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -156,14 +159,23 @@ function Toolbar({ flowName, isRunning, isDirty, canUndo, canRedo, onBack, onNam
         </button>
         {menuOpen && (
           <div className="absolute right-0 top-full mt-1.5 w-[176px] bg-surface border border-wire rounded-xl overflow-hidden shadow-xl shadow-black/50 z-50" style={{ animation: 'fade-up 0.15s ease both' }}>
-            {ADD_ITEMS.map(item => (
-              <button key={item.type} onClick={() => { onAddNode(item.type); setMenuOpen(false); }}
-                className="flex items-center gap-2.5 w-full px-3 py-2.5 hover:bg-raised transition-colors text-left">
-                <span style={{ color: item.color }}>{item.icon}</span>
-                <span className="text-[12.5px] text-ink font-medium">{item.label}</span>
-                <span className="ml-auto text-[9px] font-mono px-1.5 py-0.5 rounded" style={{ color: item.color, background: `${item.color}18` }}>{item.type}</span>
-              </button>
-            ))}
+            {ADD_ITEMS.map(item => {
+              const disabled = item.type === 'trigger' && hasTrigger;
+              return (
+                <button key={item.type}
+                  onClick={() => { if (!disabled) { onAddNode(item.type); setMenuOpen(false); } }}
+                  disabled={disabled}
+                  title={disabled ? 'A flow can only have one trigger' : undefined}
+                  className={clsx(
+                    'flex items-center gap-2.5 w-full px-3 py-2.5 transition-colors text-left',
+                    disabled ? 'opacity-35 cursor-not-allowed' : 'hover:bg-raised',
+                  )}>
+                  <span style={{ color: item.color }}>{item.icon}</span>
+                  <span className="text-[12.5px] text-ink font-medium">{item.label}</span>
+                  <span className="ml-auto text-[9px] font-mono px-1.5 py-0.5 rounded" style={{ color: item.color, background: `${item.color}18` }}>{item.type}</span>
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
@@ -189,6 +201,52 @@ function Toolbar({ flowName, isRunning, isDirty, canUndo, canRedo, onBack, onNam
   );
 }
 
+/* ─── Custom Controls ────────────────────────── */
+
+function CustomControls({ theme }: { theme: 'dark' | 'light' }) {
+  const { zoomIn, zoomOut, fitView } = useReactFlow();
+  const bg     = theme === 'light' ? '#ffffff' : '#0f0f12';
+  const border = theme === 'light' ? '#e0e0ec' : '#1d1d24';
+  const text   = theme === 'light' ? '#58588a' : '#7070a0';
+  const textHover = theme === 'light' ? '#1a1a2e' : '#dddde8';
+  const hoverBg   = theme === 'light' ? '#ededf4' : '#171720';
+
+  const btn = (onClick: () => void, label: string, icon: React.ReactNode) => (
+    <button
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      className="w-[26px] h-[26px] flex items-center justify-center transition-colors first:rounded-t-[7px] last:rounded-b-[7px]"
+      style={{ background: bg, color: text }}
+      onMouseEnter={e => { e.currentTarget.style.background = hoverBg; e.currentTarget.style.color = textHover; }}
+      onMouseLeave={e => { e.currentTarget.style.background = bg; e.currentTarget.style.color = text; }}
+    >
+      {icon}
+    </button>
+  );
+
+  return (
+    <Panel position="bottom-left">
+      <div
+        className="flex flex-col rounded-lg overflow-hidden border"
+        style={{
+          background: bg,
+          borderColor: border,
+          boxShadow: theme === 'light' ? '0 4px 16px rgba(0,0,0,0.1)' : '0 8px 24px rgba(0,0,0,0.5)',
+        }}
+      >
+        <div style={{ borderBottom: `1px solid ${border}` }}>
+          {btn(() => zoomIn(),  'Zoom in',  <ZoomIn size={14} />)}
+        </div>
+        <div style={{ borderBottom: `1px solid ${border}` }}>
+          {btn(() => zoomOut(), 'Zoom out', <ZoomOut size={14} />)}
+        </div>
+        {btn(() => fitView(), 'Fit view', <Maximize2 size={14} />)}
+      </div>
+    </Panel>
+  );
+}
+
 /* ─── FlowEditor ─────────────────────────────── */
 
 const DEFAULT_EDGE_OPTIONS = { style: { stroke: '#2e2e3c', strokeWidth: 1.5 } };
@@ -196,6 +254,9 @@ const DEFAULT_EDGE_OPTIONS = { style: { stroke: '#2e2e3c', strokeWidth: 1.5 } };
 export function FlowEditor() {
   const { flows, activeFlowId, setView, updateFlow } = useFlowStore();
   const flow = flows.find(f => f.id === activeFlowId);
+  const theme = useSettingsStore(s => s.settings.theme);
+  const canvasBg  = theme === 'light' ? '#f5f5fa' : '#080809';
+  const dotColor  = theme === 'light' ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.035)';
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>(flow ? toRFNodes(flow.nodes) : []);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(flow ? toRFEdges(flow.edges) : []);
@@ -203,6 +264,11 @@ export function FlowEditor() {
   const [flowName,     setFlowName]    = useState(flow?.name ?? 'New Flow');
   const [description,  setDescription] = useState(flow?.description ?? '');
   const [descOpen,     setDescOpen]    = useState(false);
+  const [variables,    setVariables]   = useState<{ key: string; value: string }[]>(
+    Object.entries(flow?.variables ?? {}).map(([key, value]) => ({ key, value }))
+  );
+  const [tags,         setTags]        = useState<string[]>(flow?.tags ?? []);
+  const [tagInput,     setTagInput]    = useState('');
   const [selectedId,   setSelectedId]  = useState<string | null>(null);
   const [logOpen,      setLogOpen]     = useState(false);
   const [logs,         setLogs]        = useState<LogEntry[]>([]);
@@ -437,7 +503,10 @@ export function FlowEditor() {
 
   function handleSave() {
     if (!flow) return;
-    updateFlow(flow.id, { name: flowName, description, nodes: toStoreNodes(nodes), edges: toStoreEdges(edges), updatedAt: Date.now() });
+    const vars = Object.fromEntries(
+      variables.filter(v => v.key.trim()).map(v => [v.key.trim(), v.value])
+    );
+    updateFlow(flow.id, { name: flowName, description, variables: vars, tags, nodes: toStoreNodes(nodes), edges: toStoreEdges(edges), updatedAt: Date.now() });
     setIsDirty(false);
   }
   saveRef.current = handleSave;
@@ -463,7 +532,10 @@ export function FlowEditor() {
     updateFlow(flow.id, { status: 'running' });
     sessionIdRef.current = startSession(flow.id, flow.name, 'manual');
 
-    const handle = runFlow(nodes, edges, settings, {
+    const vars = Object.fromEntries(
+      variables.filter(v => v.key.trim()).map(v => [v.key.trim(), v.value])
+    );
+    const handle = runFlow(nodes, edges, settings, vars, {
       onLog: (msg, lvl = 'info') => addLog(msg, lvl),
       onNodeStart: id => setNodeStatuses(p => new Map(p).set(id, 'running')),
       onNodeDone:  (id, code) => setNodeStatuses(p => new Map(p).set(id, code === 0 || code === null ? 'success' : 'error')),
@@ -495,6 +567,7 @@ export function FlowEditor() {
       <Toolbar
         flowName={flowName} isRunning={isRunning} isDirty={isDirty}
         canUndo={canUndo} canRedo={canRedo}
+        hasTrigger={nodes.some(n => n.type === 'trigger')}
         onBack={handleBack}
         onNameChange={v => { setFlowName(v); setIsDirty(true); }}
         onAddNode={handleAddNode}
@@ -527,9 +600,58 @@ export function FlowEditor() {
         )}
       </div>
 
+      {/* Tags bar */}
+      {(() => {
+        const allTags = [...new Set(flows.flatMap(f => f.tags ?? []))].sort();
+        function commitTag(raw: string) {
+          const t = raw.trim().toLowerCase().replace(/\s+/g, '-');
+          if (t && !tags.includes(t)) { setTags([...tags, t]); setIsDirty(true); }
+          setTagInput('');
+        }
+        return (
+          <div className="shrink-0 border-b border-wire bg-surface/60 px-4 py-1.5 flex items-center gap-2 flex-wrap min-h-[34px]">
+            <span className="text-[10px] font-mono tracking-[0.12em] uppercase text-ink-ghost shrink-0">tags</span>
+            {tags.map(t => (
+              <span key={t} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full
+                                       bg-accent/10 text-accent-soft border border-accent/20
+                                       text-[10.5px] font-mono">
+                {t}
+                <button
+                  onClick={() => { setTags(tags.filter(x => x !== t)); setIsDirty(true); }}
+                  className="hover:text-danger transition-colors"
+                >
+                  <X size={9} />
+                </button>
+              </span>
+            ))}
+            <input
+              list="tag-suggestions"
+              value={tagInput}
+              onChange={e => setTagInput(e.target.value)}
+              onKeyDown={e => {
+                if ((e.key === 'Enter' || e.key === ',') && tagInput.trim()) {
+                  e.preventDefault();
+                  commitTag(tagInput);
+                }
+                if (e.key === 'Backspace' && !tagInput && tags.length > 0) {
+                  setTags(tags.slice(0, -1)); setIsDirty(true);
+                }
+              }}
+              onBlur={() => { if (tagInput.trim()) commitTag(tagInput); }}
+              placeholder={tags.length === 0 ? 'add tags…' : ''}
+              className="text-[11.5px] font-mono bg-transparent text-ink-dim placeholder-ink-ghost/50
+                         focus:outline-none flex-1 min-w-[80px]"
+            />
+            <datalist id="tag-suggestions">
+              {allTags.filter(t => !tags.includes(t)).map(t => <option key={t} value={t} />)}
+            </datalist>
+          </div>
+        );
+      })()}
+
       {/* Canvas + Panel */}
       <div className="flex flex-1 overflow-hidden">
-        <div className="flex-1 relative bg-canvas">
+        <div className="flex-1 relative" style={{ background: canvasBg }}>
           <ReactFlow
             nodes={nodes} edges={edges}
             onNodesChange={onNodesChangeTracked}
@@ -539,8 +661,8 @@ export function FlowEditor() {
             nodeTypes={nodeTypes} defaultEdgeOptions={DEFAULT_EDGE_OPTIONS}
             fitView fitViewOptions={{ padding: 0.4 }} minZoom={0.3} maxZoom={2} deleteKeyCode="Backspace"
           >
-            <Background variant={BackgroundVariant.Dots} color="rgba(255,255,255,0.035)" gap={22} size={1.2} />
-            <Controls showInteractive={false} />
+            <Background variant={BackgroundVariant.Dots} color={dotColor} bgColor={canvasBg} gap={22} size={1.2} />
+            <CustomControls theme={theme} />
           </ReactFlow>
           {nodes.length === 0 && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -548,7 +670,17 @@ export function FlowEditor() {
             </div>
           )}
         </div>
-        {selectedNode && <NodePanel node={selectedNode} nodes={nodes} edges={edges} onUpdate={updateNodeData} onClose={() => setSelectedId(null)} />}
+        {selectedNode
+          ? <NodePanel
+              node={selectedNode} nodes={nodes} edges={edges}
+              onUpdate={updateNodeData} onClose={() => setSelectedId(null)}
+              flowVariables={Object.fromEntries(variables.filter(v => v.key.trim()).map(v => [v.key.trim(), v.value]))}
+            />
+          : <FlowVarsPanel
+              variables={variables}
+              onChange={v => { setVariables(v); setIsDirty(true); }}
+            />
+        }
       </div>
 
       <LogPanel open={logOpen} onToggle={() => setLogOpen(v => !v)} logs={logs} onClear={() => setLogs([])} />

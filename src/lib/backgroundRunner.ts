@@ -2,6 +2,7 @@ import { runFlow } from './executor';
 import { useFlowStore } from '../store/flowStore';
 import { useSettingsStore } from '../store/settingsStore';
 import { useRunLogStore } from '../store/runLogStore';
+import { useToastStore } from '../store/toastStore';
 import type { Node, Edge } from '@xyflow/react';
 import {
   isPermissionGranted, requestPermission, sendNotification,
@@ -69,11 +70,13 @@ export function runFlowInBackground(flowId: string, reason: 'cron' | 'catch-up' 
 
   const { start, append, finish } = useRunLogStore.getState();
   const sessionId = start(flowId, flow.name, reason);
+  const startedAt = Date.now();
 
   runFlow(
     flow.nodes.map(n => ({ ...n, data: { label: n.label, ...n.data } })) as unknown as Node[],
     flow.edges as unknown as Edge[],
     settings,
+    flow.variables ?? {},
     {
       onLog:       (msg, lvl = 'info') => append(sessionId, msg, lvl),
       onNodeStart: () => {},
@@ -84,6 +87,13 @@ export function runFlowInBackground(flowId: string, reason: 'cron' | 'catch-up' 
           lastRun: Date.now(),
         });
         finish(sessionId, ok);
+        useToastStore.getState().add({
+          sessionId,
+          flowId,
+          flowName:   flow.name,
+          kind:       ok ? 'success' : 'error',
+          durationMs: Date.now() - startedAt,
+        });
         if (reason !== 'manual') {
           void notify('Autoflow', `${flow.name} ${ok ? 'finished successfully' : 'failed'}`);
         }

@@ -22,9 +22,11 @@ export interface NodeRunResult {
 
 export interface InterpolationContext {
   /** Results of nodes that have already finished, keyed by node id. */
-  results:  Map<string, NodeRunResult>;
+  results:   Map<string, NodeRunResult>;
   /** Direct upstream parents of the node being interpolated. */
-  parents:  string[];
+  parents:   string[];
+  /** Flow-level variables, resolved with ${var:NAME} syntax. */
+  variables?: Record<string, string>;
 }
 
 const PLACEHOLDER_RE = /\$\{\s*([^}]+?)\s*\}/g;
@@ -35,6 +37,12 @@ export function interpolate(text: string, ctx: InterpolationContext): string {
   return text.replace(PLACEHOLDER_RE, (raw, expr: string) => {
     const key = expr.trim();
     if (!key) return raw;
+
+    // ${var:NAME} — flow-level variables, resolved first
+    if (key.startsWith('var:')) {
+      const name = key.slice(4).trim();
+      return ctx.variables?.[name] ?? raw;
+    }
 
     // ${prev} / ${prev.exit}
     if (key === 'prev' || key === 'prev.stdout') {

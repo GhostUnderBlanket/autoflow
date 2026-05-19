@@ -30,6 +30,41 @@
   --font-mono:    'DM Mono', monospace;
 }
 
+/* ─── Explicit CSS custom properties ────────── */
+/* Declaring these outside @theme ensures they are always available as
+   var(--color-*) regardless of how Tailwind v4 layers the @theme output. */
+:root {
+  --color-canvas:    #080809;
+  --color-surface:   #0f0f12;
+  --color-raised:    #171720;
+  --color-wire:      #1d1d24;
+  --color-wire-lit:  #2e2e3c;
+  --color-ink:       #dddde8;
+  --color-ink-dim:   #7070a0;
+  --color-ink-ghost: #353548;
+}
+
+/* ─── Light theme overrides ─────────────────── */
+.light {
+  --color-canvas:    #f5f5fa;
+  --color-surface:   #ffffff;
+  --color-raised:    #ededf4;
+  --color-wire:      #e0e0ec;
+  --color-wire-lit:  #c4c4d8;
+  --color-ink:       #1a1a2e;
+  --color-ink-dim:   #58588a;
+  --color-ink-ghost: #9898bc;
+}
+
+.light .dot-grid {
+  background-image: radial-gradient(
+    circle,
+    rgba(0, 0, 0, 0.045) 1px,
+    transparent 1px
+  );
+  background-size: 22px 22px;
+}
+
 /* ─── Reset ────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
 
@@ -105,22 +140,21 @@ body {
   to   { opacity: 1; transform: translateY(0)    scale(1);    }
 }
 
-/* ─── ReactFlow dark overrides ──────────────── */
-.react-flow {
-  background: var(--color-canvas);
-}
+/* ─── ReactFlow overrides ───────────────────── */
 
 .react-flow__node {
   cursor: default;
 }
 
-/* Handles */
+/* Handles — let inline styles in BaseNode drive everything visual */
 .react-flow__handle {
-  width: 9px !important;
-  height: 9px !important;
-  border-width: 2px !important;
-  border-color: var(--color-canvas) !important;
   transition: transform 0.15s, opacity 0.15s;
+  box-shadow: none !important;
+  outline: none !important;
+}
+.react-flow__handle::before,
+.react-flow__handle::after {
+  display: none !important;
 }
 .react-flow__handle:hover {
   transform: scale(1.35);
@@ -138,26 +172,41 @@ body {
   stroke-width: 1.5 !important;
 }
 
-/* Controls */
+/* Controls — dark (CSS fallback; main colors set via style prop in FlowEditor) */
 .react-flow__controls {
   border-radius: 8px !important;
   overflow: hidden;
-  border: 1px solid var(--color-wire) !important;
+  border: 1px solid #1d1d24 !important;
   box-shadow: 0 8px 24px rgba(0,0,0,0.5) !important;
-  background: var(--color-surface) !important;
+  background: #0f0f12 !important;
 }
 .react-flow__controls-button {
-  background: var(--color-surface) !important;
-  border-bottom: 1px solid var(--color-wire) !important;
-  color: var(--color-ink-dim) !important;
+  background: #0f0f12 !important;
+  border-bottom: 1px solid #1d1d24 !important;
+  color: #7070a0 !important;
   width: 26px !important;
   height: 26px !important;
   padding: 4px !important;
   transition: background 0.15s, color 0.15s;
 }
 .react-flow__controls-button:hover {
-  background: var(--color-raised) !important;
-  color: var(--color-ink) !important;
+  background: #171720 !important;
+  color: #dddde8 !important;
+}
+/* Controls — light */
+.light .react-flow__controls {
+  border: 1px solid #e0e0ec !important;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12) !important;
+  background: #ffffff !important;
+}
+.light .react-flow__controls-button {
+  background: #ffffff !important;
+  border-bottom: 1px solid #e0e0ec !important;
+  color: #58588a !important;
+}
+.light .react-flow__controls-button:hover {
+  background: #ededf4 !important;
+  color: #1a1a2e !important;
 }
 .react-flow__controls-button:last-child {
   border-bottom: none !important;

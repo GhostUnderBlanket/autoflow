@@ -89,6 +89,8 @@ function parseCandidate(candidate: unknown, baseTs: number): Flow {
     id:          `flow-${now}-${Math.random().toString(36).slice(2, 6)}`,
     name:        typeof c.name === 'string' && c.name.trim() ? c.name : 'Imported flow',
     description: typeof c.description === 'string' ? c.description : '',
+    variables:   (c.variables && typeof c.variables === 'object' && !Array.isArray(c.variables)) ? c.variables as Record<string, string> : {},
+    tags:        Array.isArray(c.tags) ? c.tags.filter((t): t is string => typeof t === 'string') : [],
     nodes:       c.nodes as Flow['nodes'],
     edges:       c.edges as Flow['edges'],
     status:      'idle',

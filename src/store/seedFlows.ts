@@ -33,6 +33,7 @@ export const SEED_FLOWS: Flow[] = [
       },
     ],
     edges:     [{ id: 'e1', source: 'n1', target: 'n2' }],
+    variables: {},
     status:    'idle',
     createdAt: T - 7 * 24 * H,
     updatedAt: T - H,

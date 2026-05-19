@@ -21,6 +21,8 @@ export interface Flow {
   id:          string;
   name:        string;
   description: string;
+  variables?:  Record<string, string>;
+  tags?:       string[];
   nodes:       FlowNode[];
   edges:       FlowEdge[];
   status:      FlowStatus;

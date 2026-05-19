@@ -4,6 +4,7 @@ import { check as checkUpdate } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { ask } from '@tauri-apps/plugin-dialog';
 import { Sidebar }      from './components/Sidebar';
+import { ToastContainer } from './components/ToastContainer';
 import { HomePage }     from './components/HomePage';
 import { FlowEditor }   from './components/FlowEditor';
 import { SettingsPage } from './components/SettingsPage';
@@ -25,6 +26,7 @@ export default function App() {
   const wsRefresh = useWorkspaceStore((s) => s.refresh);
 
   const closeToTray = useSettingsStore((s) => s.settings.closeToTray);
+  const theme       = useSettingsStore((s) => s.settings.theme);
 
   // 1) Read the workspace marker at launch. 2) Once we have a workspace,
   // load flows from disk.
@@ -45,6 +47,11 @@ export default function App() {
   useEffect(() => {
     invoke('set_close_to_tray', { on: closeToTray }).catch(() => {});
   }, [closeToTray]);
+
+  // Apply theme class to <html> so CSS variables cascade everywhere.
+  useEffect(() => {
+    document.documentElement.classList.toggle('light', theme === 'light');
+  }, [theme]);
 
   // Silent update check after app has loaded — only prompts if a new version exists.
   useEffect(() => {
@@ -99,6 +106,7 @@ export default function App() {
         {view === 'settings' && <SettingsPage />}
         {view === 'runlog'   && <RunLogPage />}
       </div>
+      <ToastContainer />
     </div>
   );
 }

@@ -230,13 +230,14 @@ function execNode(
   onLog: AddLog,
   results: Map<string, NodeRunResult>,
   parents: string[],
+  variables: Record<string, string>,
 ): SpawnHandle | null {
   const d    = node.data as Record<string, unknown>;
   const type = node.type ?? 'script';
 
   if (type === 'trigger' || type === 'condition') return null;
 
-  const ctx = { results, parents };
+  const ctx = { results, parents, variables };
   const interp = (s: string) => interpolate(s, ctx);
 
   const workspacePath = useWorkspaceStore.getState().path ?? '';
@@ -276,6 +277,7 @@ export function runFlow(
   nodes: Node[],
   edges: Edge[],
   settings: AppSettings,
+  variables: Record<string, string>,
   cbs: RunCallbacks,
 ): RunHandle {
   const signal = { stopped: false };
@@ -345,7 +347,7 @@ export function runFlow(
         continue;
       }
 
-      const handle = execNode(node, settings, cbs.onLog, results, parents);
+      const handle = execNode(node, settings, cbs.onLog, results, parents, variables);
 
       if (!handle) {
         if (type === 'trigger') cbs.onLog('   fired', 'info');

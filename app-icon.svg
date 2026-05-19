@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#4338ca"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded rectangle background -->
+  <rect width="1024" height="1024" rx="220" ry="220" fill="url(#bg)"/>
+  <!-- Zap / lightning bolt icon, centered and scaled to fill nicely -->
+  <!-- Original Lucide Zap viewBox: 0 0 24 24, scaled to ~560×560 centered in 1024×1024 -->
+  <g transform="translate(232, 202) scale(23.3, 23.3)">
+    <polygon
+      points="13,2 3,14 12,14 11,22 21,10 12,10"
+      fill="white"
+      stroke="white"
+      stroke-width="0.5"
+      stroke-linejoin="round"
+      stroke-linecap="round"
+    />
+  </g>
+</svg>

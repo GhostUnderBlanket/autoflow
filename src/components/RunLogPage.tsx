@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import {
-  ScrollText, ChevronDown, ChevronRight, Trash2, Timer, Sparkle, Clock, Upload, Search, X,
+  ScrollText, ChevronDown, ChevronRight, Trash2, Timer, Sparkle, Clock, Upload, Search, X, ExternalLink,
 } from 'lucide-react';
+import { useRef, useEffect } from 'react';
 import { clsx } from 'clsx';
 import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
@@ -80,9 +81,22 @@ const TRIGGER_OPTIONS = [
 
 /* ─── SessionRow ───────────────────────────────── */
 
-function SessionRow({ session }: { session: RunSession }) {
-  const [open, setOpen] = useState(session.status === 'running');
-  const { setActiveFlow, setView } = useFlowStore();
+function SessionRow({ session, highlight = false }: { session: RunSession; highlight?: boolean }) {
+  const [open, setOpen] = useState(session.status === 'running' || highlight);
+  const { setActiveFlow, setView, setTargetSession } = useFlowStore();
+  const rowRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!highlight || !rowRef.current) return;
+    // Delay so the page layout is complete, then only scroll if the row
+    // isn't already fully visible (block: nearest = no-op when in view).
+    const t = setTimeout(() => {
+      rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      setTargetSession(null);
+    }, 80);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function jumpToFlow() {
     setActiveFlow(session.flowId);
@@ -93,7 +107,7 @@ function SessionRow({ session }: { session: RunSession }) {
   const isRunning = session.status === 'running';
 
   return (
-    <div className="border border-wire rounded-xl overflow-hidden">
+    <div ref={rowRef} className="border border-wire rounded-xl overflow-hidden">
       <button
         onClick={() => setOpen(v => !v)}
         className="w-full flex items-center gap-3 px-4 py-3 hover:bg-raised/60 transition-colors text-left"
@@ -107,11 +121,7 @@ function SessionRow({ session }: { session: RunSession }) {
           style={isRunning ? { animation: 'pulse-dot 1.4s ease-in-out infinite' } : undefined}
         />
 
-        <span
-          className="flex-1 text-[13px] font-semibold text-ink truncate font-display cursor-pointer hover:text-accent-soft transition-colors"
-          onClick={e => { e.stopPropagation(); jumpToFlow(); }}
-          title="Open in editor"
-        >
+        <span className="flex-1 text-[13px] font-semibold text-ink truncate font-display">
           {session.flowName}
         </span>
 
@@ -126,6 +136,15 @@ function SessionRow({ session }: { session: RunSession }) {
 
         <span className="text-[11px] font-mono text-ink-ghost shrink-0 w-20 text-right">
           {ago(session.startedAt)}
+        </span>
+
+        <span
+          role="button"
+          onClick={e => { e.stopPropagation(); jumpToFlow(); }}
+          title="Open flow in editor"
+          className="shrink-0 p-1 rounded-md text-ink-ghost hover:text-ink hover:bg-raised transition-colors"
+        >
+          <ExternalLink size={12} />
         </span>
       </button>
 
@@ -160,7 +179,8 @@ function SessionRow({ session }: { session: RunSession }) {
 /* ─── RunLogPage ───────────────────────────────── */
 
 export function RunLogPage() {
-  const sessions = useRunLogStore(s => s.sessions);
+  const sessions        = useRunLogStore(s => s.sessions);
+  const targetSessionId = useFlowStore(s => s.targetSessionId);
   const clear    = useRunLogStore(s => s.clear);
 
   const [statusFilter,  setStatusFilter]  = useState<StatusFilter>('all');
@@ -320,7 +340,7 @@ export function RunLogPage() {
           <div className="space-y-6">
             {grouped.map(([key, list]) => (
               <div key={key}>
-                <div className="flex items-baseline gap-3 mb-2.5 sticky top-0 bg-canvas py-1 -my-1 z-[1]">
+                <div className="flex items-baseline gap-3 mb-2.5">
                   <h3 className="text-[12px] font-semibold text-ink-dim tracking-wide font-display">
                     {dayLabel(key)}
                   </h3>
@@ -330,7 +350,7 @@ export function RunLogPage() {
                   <div className="flex-1 h-px bg-wire/70" />
                 </div>
                 <div className="space-y-2.5">
-                  {list.map(s => <SessionRow key={s.id} session={s} />)}
+                  {list.map(s => <SessionRow key={s.id} session={s} highlight={s.id === targetSessionId} />)}
                 </div>
               </div>
             ))}

@@ -1,6 +1,12 @@
 import { Handle, Position } from '@xyflow/react';
 import { clsx } from 'clsx';
 import type { ReactNode, CSSProperties } from 'react';
+import { useSettingsStore } from '../../store/settingsStore';
+
+const SURFACE = { dark: '#0f0f12', light: '#ffffff' };
+const WIRE    = { dark: '#1d1d24', light: '#e0e0ec' };
+const WIRE_LIT= { dark: '#2e2e3c', light: '#c4c4d8' };
+const CANVAS  = { dark: '#080809', light: '#f5f5fa' };
 
 interface CustomOutput {
   id:    string;
@@ -36,22 +42,32 @@ export function BaseNode({
   hasInput = true, hasOutput = true, outputs, runStatus,
 }: BaseNodeProps) {
   const hasCustomOutputs = (outputs?.length ?? 0) > 0;
+  const t = useSettingsStore.getState().settings.theme;
+  const bg            = SURFACE[t];
+  const border        = selected ? WIRE_LIT[t] : WIRE[t];
+  const handleStyle   = (c: string) => ({
+    background: c,
+    border:     `2px solid ${CANVAS[t]}`,
+    boxShadow:  'none',
+    outline:    'none',
+    width:      10,
+    height:     10,
+  });
   return (
     <div
       className={clsx(
-        'rf-node-card flex rounded-[8px] border bg-surface',
+        'rf-node-card flex rounded-[8px] border',
         'transition-all duration-150 relative overflow-visible',
-        selected ? 'border-wire-lit' : 'border-wire',
         runStatus && RUN_RING[runStatus],
       )}
-      style={{ '--node-color': color, width: 188 } as CSSProperties}
+      style={{ '--node-color': color, width: 188, background: bg, borderColor: border } as CSSProperties}
     >
       {hasInput && (
         <Handle
           type="target"
           position={Position.Left}
           isConnectable={isConnectable}
-          style={{ background: color }}
+          style={handleStyle(color)}
         />
       )}
 
@@ -77,7 +93,7 @@ export function BaseNode({
           type="source"
           position={Position.Right}
           isConnectable={isConnectable}
-          style={{ background: color }}
+          style={handleStyle(color)}
         />
       )}
 
@@ -89,10 +105,8 @@ export function BaseNode({
             position={Position.Right}
             isConnectable={isConnectable}
             style={{
-              background: out.color,
-              top:        out.top,
-              width:      9,
-              height:     9,
+              ...handleStyle(out.color),
+              top: out.top,
             }}
           />
           <span

@@ -5,6 +5,8 @@ export interface AppSettings {
   nodeTimeout:   number;
   stopOnError:   boolean;
   closeToTray:   boolean;
+  theme:         'dark' | 'light';
+  runLogLimit:   number;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -14,4 +16,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   nodeTimeout:   30,
   stopOnError:   true,
   closeToTray:   true,
+  theme:         'dark',
+  runLogLimit:   100,
 };

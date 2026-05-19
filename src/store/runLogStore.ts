@@ -1,6 +1,11 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { LogEntry } from '../types/flow';
+import { useSettingsStore } from './settingsStore';
+
+function getLimit(): number {
+  return useSettingsStore.getState().settings.runLogLimit ?? 100;
+}
 
 export interface RunSession {
   id:          string;
@@ -21,8 +26,6 @@ interface RunLogStore {
   clear:  () => void;
 }
 
-const MAX_SESSIONS = 100;
-
 function mkId() { return `s-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
 function mkLog(message: string, level: LogEntry['level'] = 'info'): LogEntry {
   return { id: mkId(), timestamp: Date.now(), level, message };
@@ -42,7 +45,7 @@ export const useRunLogStore = create<RunLogStore>()(
           logs: [],
         };
         set(s => ({
-          sessions: [session, ...s.sessions].slice(0, MAX_SESSIONS),
+          sessions: [session, ...s.sessions].slice(0, getLimit()),
         }));
         return id;
       },

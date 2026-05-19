@@ -7,13 +7,15 @@ import {
 import { SEED_FLOWS } from './seedFlows';
 
 interface FlowStore {
-  flows:         Flow[];
-  activeFlowId:  string | null;
-  view:          'home' | 'editor' | 'settings' | 'runlog';
+  flows:            Flow[];
+  activeFlowId:     string | null;
+  view:             'home' | 'editor' | 'settings' | 'runlog';
+  targetSessionId:  string | null;
   /** True after the on-disk store has been read into memory. */
-  loaded:        boolean;
-  setActiveFlow: (id: string | null) => void;
-  setView:       (view: 'home' | 'editor' | 'settings' | 'runlog') => void;
+  loaded:           boolean;
+  setActiveFlow:    (id: string | null) => void;
+  setView:          (view: 'home' | 'editor' | 'settings' | 'runlog') => void;
+  setTargetSession: (id: string | null) => void;
   addFlow:       (flow: Flow) => void;
   deleteFlow:    (id: string) => void;
   updateFlow:    (id: string, patch: Partial<Flow>) => void;
@@ -23,13 +25,15 @@ interface FlowStore {
 }
 
 export const useFlowStore = create<FlowStore>((set, get) => ({
-  flows:        [],
-  activeFlowId: null,
-  view:         'home',
-  loaded:       false,
+  flows:           [],
+  activeFlowId:    null,
+  view:            'home',
+  targetSessionId: null,
+  loaded:          false,
 
-  setActiveFlow: (id)   => set({ activeFlowId: id }),
-  setView:       (view) => set({ view }),
+  setActiveFlow:    (id)   => set({ activeFlowId: id }),
+  setView:          (view) => set({ view }),
+  setTargetSession: (id)   => set({ targetSessionId: id }),
 
   addFlow: (flow) => {
     set((s) => ({ flows: [...s.flows, flow] }));

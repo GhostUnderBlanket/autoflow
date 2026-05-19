@@ -14,13 +14,14 @@ import type { ReactNode } from 'react';
 
 /* ─── Category nav ───────────────────────────── */
 
-type Category = 'workspace' | 'rest' | 'shell' | 'window' | 'about';
+type Category = 'workspace' | 'rest' | 'shell' | 'window' | 'runlog' | 'about';
 
 const CATEGORIES: { id: Category; label: string; sub: string }[] = [
   { id: 'workspace', label: 'Workspace',         sub: 'where files live' },
-  { id: 'rest',      label: 'REST API',           sub: '2 settings'  },
+  { id: 'window',    label: 'Window & Tray',     sub: '2 settings'  },
+  { id: 'rest',      label: 'REST API',          sub: '2 settings'  },
   { id: 'shell',     label: 'Shell & Execution', sub: '3 settings'  },
-  { id: 'window',    label: 'Window & Tray',     sub: '1 setting'   },
+  { id: 'runlog',    label: 'Run Log',           sub: '1 setting'   },
   { id: 'about',     label: 'About',             sub: 'info & keys' },
 ];
 
@@ -384,6 +385,29 @@ function ShellSection() {
   );
 }
 
+function RunLogSection() {
+  const { settings, update } = useSettingsStore();
+  return (
+    <div style={{ animation: 'fade-up 0.22s ease both' }}>
+      <SectionHead
+        title="Run Log"
+        description="Controls how execution history is stored and displayed."
+      />
+      <SettingRow
+        index={1}
+        label="Session Limit"
+        description="Maximum number of run sessions kept in history. Oldest entries are evicted automatically when the limit is reached."
+      >
+        <Stepper
+          value={settings.runLogLimit}
+          onChange={v => update({ runLogLimit: v })}
+          min={10} max={500} step={10} suffix="sessions"
+        />
+      </SettingRow>
+    </div>
+  );
+}
+
 function WindowSection() {
   const { settings, update } = useSettingsStore();
   return (
@@ -394,6 +418,28 @@ function WindowSection() {
       />
       <SettingRow
         index={1}
+        label="Theme"
+        description="Switch between dark and light appearance."
+      >
+        <div className="flex gap-1">
+          {(['dark', 'light'] as const).map(t => (
+            <button
+              key={t}
+              onClick={() => update({ theme: t })}
+              className={clsx(
+                'px-3 py-[6px] rounded-md text-[11px] font-mono font-medium capitalize transition-all',
+                settings.theme === t
+                  ? 'bg-accent/14 text-accent-soft border border-accent/28'
+                  : 'bg-raised text-ink-dim border border-wire hover:text-ink hover:border-wire-lit',
+              )}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+      </SettingRow>
+      <SettingRow
+        index={2}
         label="Close to Tray"
         description="Closing the window hides it to the system tray so scheduled flows keep firing. Quit from the tray menu to fully exit."
       >
@@ -457,7 +503,7 @@ function AboutSection() {
     <div style={{ animation: 'fade-up 0.22s ease both' }}>
       <SectionHead
         title="About"
-        description="autoflow v0.1.0 · Tauri v2 · React 19 · @xyflow/react · Tailwind CSS v4"
+        description="autoflow v0.2.0 · Tauri v2 · React 19 · @xyflow/react · Tailwind CSS v4"
       />
 
       {/* Update checker */}
@@ -563,7 +609,7 @@ function AboutSection() {
 /* ─── SettingsPage ────────────────────────────── */
 
 export function SettingsPage() {
-  const [active, setActive] = useState<Category>('rest');
+  const [active, setActive] = useState<Category>('workspace');
 
   return (
     <div className="h-full flex flex-col dot-grid overflow-hidden">
@@ -620,9 +666,10 @@ export function SettingsPage() {
           style={{ animation: 'fade-up 0.2s ease both' }}
         >
           {active === 'workspace' && <WorkspaceSection />}
-          {active === 'rest'      && <RestSection       />}
+          {active === 'rest'      && <RestSection      />}
           {active === 'shell'     && <ShellSection     />}
           {active === 'window'    && <WindowSection    />}
+          {active === 'runlog'    && <RunLogSection    />}
           {active === 'about'     && <AboutSection     />}
         </div>
       </div>
