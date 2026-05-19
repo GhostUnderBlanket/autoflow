@@ -1,0 +1,87 @@
+/**
+ * Variable interpolation for node inputs.
+ *
+ * Supported placeholders (all case-sensitive):
+ *   ${prev}            joined stdout of all direct upstream parents
+ *   ${prev.exit}       exit code of the most-recent parent
+ *   ${<nodeId>}        captured stdout of the named node
+ *   ${<label>}         captured stdout of the node whose label matches
+ *   ${<id>.exit}       exit code of the named node
+ *   ${env.NAME}        process env variable (read via import.meta.env on web)
+ *
+ * Whitespace inside the braces is tolerated. Unknown placeholders are left
+ * untouched so the user can spot typos.
+ */
+
+export interface NodeRunResult {
+  id:       string;
+  label:    string;
+  stdout:   string;
+  exitCode: number | null;
+}
+
+export interface InterpolationContext {
+  /** Results of nodes that have already finished, keyed by node id. */
+  results:  Map<string, NodeRunResult>;
+  /** Direct upstream parents of the node being interpolated. */
+  parents:  string[];
+}
+
+const PLACEHOLDER_RE = /\$\{\s*([^}]+?)\s*\}/g;
+
+export function interpolate(text: string, ctx: InterpolationContext): string {
+  if (!text || !text.includes('${')) return text;
+
+  return text.replace(PLACEHOLDER_RE, (raw, expr: string) => {
+    const key = expr.trim();
+    if (!key) return raw;
+
+    // ${prev} / ${prev.exit}
+    if (key === 'prev' || key === 'prev.stdout') {
+      return joinParentStdout(ctx);
+    }
+    if (key === 'prev.exit' || key === 'prev.exitCode') {
+      const last = ctx.parents.length > 0
+        ? ctx.results.get(ctx.parents[ctx.parents.length - 1])
+        : undefined;
+      return last?.exitCode != null ? String(last.exitCode) : '';
+    }
+
+    // ${env.NAME}
+    if (key.startsWith('env.')) {
+      const name = key.slice(4);
+      const env  = (import.meta as { env?: Record<string, string> }).env ?? {};
+      return env[name] ?? '';
+    }
+
+    // ${id} / ${id.exit} / ${id.stdout}
+    const [head, ...rest] = key.split('.');
+    const suffix = rest.join('.');
+    const hit    = findResult(ctx.results, head);
+    if (!hit) return raw;
+
+    if (!suffix || suffix === 'stdout') return hit.stdout.trim();
+    if (suffix === 'exit' || suffix === 'exitCode') {
+      return hit.exitCode != null ? String(hit.exitCode) : '';
+    }
+    if (suffix === 'label') return hit.label;
+    return raw;
+  });
+}
+
+function joinParentStdout(ctx: InterpolationContext): string {
+  return ctx.parents
+    .map(id => ctx.results.get(id)?.stdout?.trim() ?? '')
+    .filter(Boolean)
+    .join('\n');
+}
+
+function findResult(results: Map<string, NodeRunResult>, key: string): NodeRunResult | undefined {
+  const byId = results.get(key);
+  if (byId) return byId;
+  // Fall back to a case-sensitive label match.
+  for (const r of results.values()) {
+    if (r.label === key) return r;
+  }
+  return undefined;
+}

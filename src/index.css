@@ -1,0 +1,175 @@
+@import "tailwindcss";
+
+@theme {
+  /* Canvas layers */
+  --color-canvas:  #080809;
+  --color-surface: #0f0f12;
+  --color-raised:  #171720;
+
+  /* Borders */
+  --color-wire:     #1d1d24;
+  --color-wire-lit: #2e2e3c;
+
+  /* Ink */
+  --color-ink:       #dddde8;
+  --color-ink-dim:   #7070a0;
+  --color-ink-ghost: #353548;
+
+  /* Accent */
+  --color-accent:      #6d5bef;
+  --color-accent-soft: #9c8ff5;
+
+  /* Status */
+  --color-idle:    #3f3f55;
+  --color-running: #3b82f6;
+  --color-success: #05c58c;
+  --color-danger:  #e84040;
+
+  /* Fonts */
+  --font-display: 'Syne', sans-serif;
+  --font-mono:    'DM Mono', monospace;
+}
+
+/* ─── Reset ────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── Scrollbar ─────────────────────────────── */
+::-webkit-scrollbar { width: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--color-wire-lit);
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--color-ink-ghost); }
+
+/* ─── Custom utilities ──────────────────────── */
+@utility dot-grid {
+  background-image: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.04) 1px,
+    transparent 1px
+  );
+  background-size: 22px 22px;
+}
+
+/* ─── Animations ────────────────────────────── */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1;   transform: scale(1);    }
+  50%       { opacity: 0.3; transform: scale(0.65); }
+}
+
+@keyframes bar-breathe {
+  0%, 100% { opacity: 0.9; }
+  50%       { opacity: 0.3; }
+}
+
+@keyframes slide-in {
+  from { opacity: 0; transform: translateX(-6px); }
+  to   { opacity: 1; transform: translateX(0);    }
+}
+
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(8px); }
+  to   { opacity: 1; transform: translateX(0);   }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes fade-down {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+
+@keyframes slide-down {
+  from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+
+/* ─── ReactFlow dark overrides ──────────────── */
+.react-flow {
+  background: var(--color-canvas);
+}
+
+.react-flow__node {
+  cursor: default;
+}
+
+/* Handles */
+.react-flow__handle {
+  width: 9px !important;
+  height: 9px !important;
+  border-width: 2px !important;
+  border-color: var(--color-canvas) !important;
+  transition: transform 0.15s, opacity 0.15s;
+}
+.react-flow__handle:hover {
+  transform: scale(1.35);
+}
+
+/* Edges */
+.react-flow__edge-path {
+  stroke-width: 1.5;
+}
+.react-flow__edge-interaction {
+  stroke-width: 10 !important;
+}
+.react-flow__connection-path {
+  stroke: var(--color-accent) !important;
+  stroke-width: 1.5 !important;
+}
+
+/* Controls */
+.react-flow__controls {
+  border-radius: 8px !important;
+  overflow: hidden;
+  border: 1px solid var(--color-wire) !important;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5) !important;
+  background: var(--color-surface) !important;
+}
+.react-flow__controls-button {
+  background: var(--color-surface) !important;
+  border-bottom: 1px solid var(--color-wire) !important;
+  color: var(--color-ink-dim) !important;
+  width: 26px !important;
+  height: 26px !important;
+  padding: 4px !important;
+  transition: background 0.15s, color 0.15s;
+}
+.react-flow__controls-button:hover {
+  background: var(--color-raised) !important;
+  color: var(--color-ink) !important;
+}
+.react-flow__controls-button:last-child {
+  border-bottom: none !important;
+}
+.react-flow__controls-button svg {
+  fill: currentColor !important;
+  max-width: 14px;
+  max-height: 14px;
+}
+
+/* Node selection ring uses the node's own color via data attribute */
+.react-flow__node.selected .rf-node-card {
+  box-shadow: 0 0 0 1.5px var(--node-color, var(--color-accent)) !important;
+  border-color: color-mix(in srgb, var(--node-color, var(--color-accent)) 40%, transparent) !important;
+}
