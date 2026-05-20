@@ -262,7 +262,7 @@ const EXAMPLES: FlowTemplate[] = [
   /* ── 15. Loop: forEach (JSON array) ───────────── */
   {
     name:        'Loop — forEach (JSON Array)',
-    description: 'A script emits a JSON array string. The Loop node parses it and runs the body once per element with ${loop.item} set to each value. Use this to iterate over API responses.',
+    description: 'A script emits a JSON array of strings. The Loop node parses it and runs the body once per element with ${loop.item} set to each value. For arrays of objects, see the next example.',
     tags:        ['example', 'loop'],
     variables:   {},
     nodes: [
@@ -275,6 +275,37 @@ const EXAMPLES: FlowTemplate[] = [
       { id: 'fj-e1', source: 'fj-trig', target: 'fj-emit'  },
       { id: 'fj-e2', source: 'fj-emit', target: 'fj-loop'  },
       { id: 'fj-e3', source: 'fj-loop', target: 'fj-print' },
+    ],
+  },
+
+  /* ── 16. Loop: forEach JSON objects + field extraction ── */
+  {
+    name:        'Loop — forEach JSON Objects (${loop.item.field})',
+    description: 'A script emits a JSON array of objects. The Loop iterates and the REST body uses ${loop.item.title} and ${loop.item.userId} to extract individual fields — no manual JSON parsing needed. Uses the free JSONPlaceholder API.',
+    tags:        ['example', 'loop', 'rest'],
+    variables:   {},
+    nodes: [
+      { id: 'jo-trig', type: 'trigger', label: 'Run',              position: { x: 0,   y: 0 }, data: { mode: 'manual' } },
+      { id: 'jo-emit', type: 'script',  label: 'Emit objects',      position: { x: 240, y: 0 }, data: {
+        shell: 'powershell',
+        script: 'Write-Output \'[{"title":"First post","userId":1},{"title":"Second post","userId":2}]\'',
+      }},
+      { id: 'jo-loop', type: 'loop',    label: 'For each object',   position: { x: 500, y: 0 }, data: { mode: 'forEach', separator: 'json-array', delay: 0 } },
+      { id: 'jo-rest', type: 'rest',    label: 'POST post',          position: { x: 760, y: 0 }, data: {
+        method:      'POST',
+        endpoint:    '',
+        urlOverride: 'https://jsonplaceholder.typicode.com/posts',
+        bodyMode:    'form',
+        bodyRows: [
+          { key: 'title',  value: '${loop.item.title}'  },
+          { key: 'userId', value: '${loop.item.userId}' },
+        ],
+      }},
+    ],
+    edges: [
+      { id: 'jo-e1', source: 'jo-trig', target: 'jo-emit' },
+      { id: 'jo-e2', source: 'jo-emit', target: 'jo-loop' },
+      { id: 'jo-e3', source: 'jo-loop', target: 'jo-rest' },
     ],
   },
 

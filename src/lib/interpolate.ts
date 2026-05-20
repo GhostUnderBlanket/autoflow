@@ -8,6 +8,8 @@
  *   ${<label>}         captured stdout of the node whose label matches
  *   ${<id>.exit}       exit code of the named node
  *   ${env.NAME}        process env variable (read via import.meta.env on web)
+ *   ${loop.item}       current forEach loop item (whole value)
+ *   ${loop.item.field} JSON field extracted from the current forEach loop item
  *
  * Whitespace inside the braces is tolerated. Unknown placeholders are left
  * untouched so the user can spot typos.
@@ -46,9 +48,21 @@ export function interpolate(text: string, ctx: InterpolationContext): string {
       return ctx.variables?.[name] ?? raw;
     }
 
-    // ${loop.item} — current forEach item
+    // ${loop.item} — current forEach item (whole value)
     if (key === 'loop.item') {
       return ctx.loopItem !== undefined ? ctx.loopItem : raw;
+    }
+
+    // ${loop.item.field} — JSON field extraction from the current loop item
+    if (key.startsWith('loop.item.')) {
+      if (ctx.loopItem === undefined) return raw;
+      const field = key.slice('loop.item.'.length);
+      try {
+        const parsed = JSON.parse(ctx.loopItem);
+        const val = jsonPath(parsed, field.split('.'));
+        if (val !== undefined) return typeof val === 'string' ? val : JSON.stringify(val);
+      } catch { /* loop item is not JSON */ }
+      return raw;
     }
 
     // ${prev} / ${prev.exit}
