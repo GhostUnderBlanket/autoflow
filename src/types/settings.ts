@@ -10,7 +10,7 @@ export interface AppSettings {
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  restBaseUrl:   'https://asia-southeast1-pm-tools-758d0.cloudfunctions.net',
+  restBaseUrl:   '',
   restToken:     '',
   defaultShell:  'powershell',
   nodeTimeout:   30,
