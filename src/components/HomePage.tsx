@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   Plus, Workflow, Clock, Play, Pencil, Timer, Globe, Terminal, GitBranch,
   Download, Upload, Trash2, AlertCircle, CalendarClock, Check, Copy, Search, X, Zap, ZapOff,
-  Sun, CloudSun, Cloud, CloudRain, CloudLightning,
+  Sun, CloudSun, Cloud, CloudRain, CloudLightning, FolderOpen, ExternalLink, Repeat2,
 } from 'lucide-react';
 import { useRunLogStore } from '../store/runLogStore';
 import { Select } from './ui/Select';
@@ -15,6 +15,7 @@ import { exportFlow, importFlows } from '../lib/flowIO';
 import { fetchSchedulerState, type FlowJobState } from '../lib/cronService';
 import { runFlowInBackground } from '../lib/backgroundRunner';
 import type { Flow, NodeKind } from '../types/flow';
+import { tagColor } from '../lib/tagColor';
 
 /* ─── Helpers ──────────────────────────────────────────────── */
 
@@ -47,17 +48,23 @@ const STATUS_MAP = {
 } as const;
 
 const NODE_ICON: Record<NodeKind, ReactNode> = {
-  trigger:   <Timer     size={10} />,
-  rest:      <Globe        size={10} />,
-  script:    <Terminal  size={10} />,
-  condition: <GitBranch size={10} />,
+  trigger:   <Timer       size={10} />,
+  rest:      <Globe       size={10} />,
+  script:    <Terminal    size={10} />,
+  condition: <GitBranch   size={10} />,
+  file:      <FolderOpen  size={10} />,
+  openurl:   <ExternalLink size={10} />,
+  loop:      <Repeat2     size={10} />,
 };
 
 const NODE_CHIP: Record<NodeKind, string> = {
-  trigger:   'bg-ink-ghost/20 text-ink-dim',
-  rest:      'bg-cyan-400/[.14] text-cyan-300',
-  script:    'bg-running/[.14] text-running',
-  condition: 'bg-success/[.14] text-success',
+  trigger:   'bg-accent/[.14] text-accent-soft',
+  condition: 'bg-cyan-400/[.14] text-cyan-300',
+  loop:      'bg-success/[.14] text-success',
+  file:      'bg-amber-400/[.14] text-amber-300',
+  script:    'bg-orange-400/[.14] text-orange-300',
+  rest:      'bg-pink-400/[.14] text-pink-300',
+  openurl:   'bg-violet-400/[.14] text-violet-300',
 };
 
 /* ─── Weather (run health) ─────────────────────────────────── */
@@ -85,22 +92,6 @@ function calcWeather(flowId: string, sessions: { flowId: string; status: string 
 
 /* ─── Tag colors ───────────────────────────────────────────── */
 
-const TAG_PALETTES = [
-  'bg-purple-400/10 text-purple-300 border-purple-400/25',
-  'bg-blue-400/10 text-blue-300 border-blue-400/25',
-  'bg-emerald-400/10 text-emerald-300 border-emerald-400/25',
-  'bg-yellow-400/10 text-yellow-300 border-yellow-400/25',
-  'bg-pink-400/10 text-pink-300 border-pink-400/25',
-  'bg-orange-400/10 text-orange-300 border-orange-400/25',
-  'bg-cyan-400/10 text-cyan-300 border-cyan-400/25',
-  'bg-red-400/10 text-red-300 border-red-400/25',
-];
-
-function tagColor(tag: string): string {
-  let h = 0;
-  for (const c of tag) h = (h * 31 + c.charCodeAt(0)) & 0xffffffff;
-  return TAG_PALETTES[Math.abs(h) % TAG_PALETTES.length];
-}
 
 /* ─── Checkbox ─────────────────────────────────────────────── */
 

@@ -27,6 +27,8 @@ export interface InterpolationContext {
   parents:   string[];
   /** Flow-level variables, resolved with ${var:NAME} syntax. */
   variables?: Record<string, string>;
+  /** Current forEach loop item, resolved with ${loop.item}. */
+  loopItem?: string;
 }
 
 const PLACEHOLDER_RE = /\$\{\s*([^}]+?)\s*\}/g;
@@ -42,6 +44,11 @@ export function interpolate(text: string, ctx: InterpolationContext): string {
     if (key.startsWith('var:')) {
       const name = key.slice(4).trim();
       return ctx.variables?.[name] ?? raw;
+    }
+
+    // ${loop.item} — current forEach item
+    if (key === 'loop.item') {
+      return ctx.loopItem !== undefined ? ctx.loopItem : raw;
     }
 
     // ${prev} / ${prev.exit}
@@ -73,6 +80,13 @@ export function interpolate(text: string, ctx: InterpolationContext): string {
       return hit.exitCode != null ? String(hit.exitCode) : '';
     }
     if (suffix === 'label') return hit.label;
+
+    // ${node-id.field.nested} — JSON field extraction from stdout
+    try {
+      const parsed = JSON.parse(hit.stdout);
+      const val = jsonPath(parsed, suffix.split('.'));
+      if (val !== undefined) return typeof val === 'string' ? val : JSON.stringify(val);
+    } catch { /* stdout is not JSON */ }
     return raw;
   });
 }
@@ -82,6 +96,15 @@ function joinParentStdout(ctx: InterpolationContext): string {
     .map(id => ctx.results.get(id)?.stdout?.trim() ?? '')
     .filter(Boolean)
     .join('\n');
+}
+
+function jsonPath(obj: unknown, parts: string[]): unknown {
+  let cur: unknown = obj;
+  for (const part of parts) {
+    if (cur === null || typeof cur !== 'object') return undefined;
+    cur = (cur as Record<string, unknown>)[part];
+  }
+  return cur;
 }
 
 function findResult(results: Map<string, NodeRunResult>, key: string): NodeRunResult | undefined {

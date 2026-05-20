@@ -1,15 +1,17 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
-import { Check, RotateCcw, Globe, AlertTriangle, FolderOpen, Eye, EyeOff, RefreshCw, Download } from 'lucide-react';
+import { Check, RotateCcw, Globe, AlertTriangle, FolderOpen, Eye, EyeOff, RefreshCw, Download, BookOpen } from 'lucide-react';
 import { check as checkForUpdate, type Update } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { clsx } from 'clsx';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
+import { enable as autostartEnable, disable as autostartDisable, isEnabled as autostartIsEnabled } from '@tauri-apps/plugin-autostart';
 import { openPath } from '@tauri-apps/plugin-opener';
 import { useSettingsStore } from '../store/settingsStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { useFlowStore } from '../store/flowStore';
+import { getExampleFlows } from '../lib/exampleFlows';
 import type { AppSettings } from '../types/settings';
 import type { ReactNode } from 'react';
 
@@ -19,7 +21,7 @@ type Category = 'workspace' | 'rest' | 'shell' | 'window' | 'runlog' | 'about';
 
 const CATEGORIES: { id: Category; label: string; sub: string }[] = [
   { id: 'workspace', label: 'Workspace',         sub: 'where files live' },
-  { id: 'window',    label: 'Window & Tray',     sub: '2 settings'  },
+  { id: 'window',    label: 'Window & Tray',     sub: '3 settings'  },
   { id: 'rest',      label: 'REST API',          sub: '2 settings'  },
   { id: 'shell',     label: 'Shell & Execution', sub: '3 settings'  },
   { id: 'runlog',    label: 'Run Log',           sub: '1 setting'   },
@@ -98,17 +100,18 @@ function ShellToggle({
 }
 
 function Toggle({
-  value, onChange,
-}: { value: boolean; onChange: (v: boolean) => void }) {
+  value, onChange, disabled = false,
+}: { value: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (
     <button
       role="switch"
       aria-checked={value}
-      onClick={() => onChange(!value)}
+      onClick={() => !disabled && onChange(!value)}
       className={clsx(
         'relative inline-flex items-center rounded-full transition-colors duration-200',
         'w-[38px] h-[22px] focus:outline-none',
         value ? 'bg-accent' : 'bg-wire-lit',
+        disabled && 'opacity-50 cursor-not-allowed',
       )}
     >
       <span
@@ -163,12 +166,15 @@ function SectionHead({ title, description }: { title: string; description: strin
 /* ─── Sections ───────────────────────────────── */
 
 function WorkspaceSection() {
-  const path  = useWorkspaceStore((s) => s.path);
-  const setWs = useWorkspaceStore((s) => s.set);
+  const path    = useWorkspaceStore((s) => s.path);
+  const setWs   = useWorkspaceStore((s) => s.set);
+  const addFlow = useFlowStore((s) => s.addFlow);
 
-  const [busy, setBusy]   = useState(false);
-  const [info, setInfo]   = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [busy,       setBusy]       = useState(false);
+  const [info,       setInfo]       = useState<string | null>(null);
+  const [error,      setError]      = useState<string | null>(null);
+  const [exBusy,     setExBusy]     = useState(false);
+  const [exFeedback, setExFeedback] = useState<string | null>(null);
 
   async function pickAndSet() {
     setError(null); setInfo(null);
@@ -195,6 +201,21 @@ function WorkspaceSection() {
     if (!path) return;
     try { await openPath(path); }
     catch (e) { setError(String(e)); }
+  }
+
+  function importExamples() {
+    setExBusy(true);
+    setExFeedback(null);
+    try {
+      const flows = getExampleFlows();
+      flows.forEach(f => addFlow(f));
+      setExFeedback(`${flows.length} example flows added.`);
+    } catch (e) {
+      setExFeedback(`Error: ${String(e)}`);
+    } finally {
+      setExBusy(false);
+      setTimeout(() => setExFeedback(null), 4000);
+    }
   }
 
   return (
@@ -250,6 +271,42 @@ function WorkspaceSection() {
       <p className="text-[11px] text-ink-ghost leading-relaxed">
         Switching doesn't move existing files. Your flows load from the new location next.
       </p>
+
+      {/* Example Flows */}
+      <div>
+        <h2 className="text-[15px] font-semibold text-ink leading-snug font-display">
+          Example Flows
+        </h2>
+        <p className="text-[12.5px] text-ink-dim mt-1.5 leading-relaxed">
+          Import ready-made flows covering every node type — Trigger, Script, REST API, Condition, Loop, File, and Open URL.
+          Each import creates a fresh copy so you can run it multiple times without clobbering the originals.
+        </p>
+      </div>
+
+      <div className="rounded-xl border border-wire bg-raised/40 p-4">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-[12.5px] font-medium text-ink">15 example flows</p>
+            <p className="text-[11.5px] text-ink-dim mt-0.5">Hello World · Cron · REST GET &amp; POST · Condition · Variables · Refs · JSON extraction · File · Open URL · Loop (repeat / retry / forEach)</p>
+          </div>
+          <button
+            onClick={importExamples}
+            disabled={exBusy}
+            className={clsx(
+              'shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors',
+              exBusy
+                ? 'bg-raised text-ink-ghost cursor-not-allowed'
+                : 'border border-accent/30 bg-accent/[.08] text-accent-soft hover:bg-accent/[.16]',
+            )}
+          >
+            <BookOpen size={13} />
+            Import
+          </button>
+        </div>
+        {exFeedback && (
+          <p className="text-[11px] text-success font-mono leading-relaxed mt-3">{exFeedback}</p>
+        )}
+      </div>
     </div>
   );
 }
@@ -411,6 +468,25 @@ function RunLogSection() {
 
 function WindowSection() {
   const { settings, update } = useSettingsStore();
+  const [autostart,    setAutostart]    = useState(false);
+  const [autostartBusy, setAutostartBusy] = useState(false);
+
+  useEffect(() => {
+    autostartIsEnabled().then(setAutostart).catch(() => {});
+  }, []);
+
+  const toggleAutostart = useCallback(async (v: boolean) => {
+    setAutostartBusy(true);
+    try {
+      if (v) await autostartEnable(); else await autostartDisable();
+      setAutostart(v);
+    } catch (e) {
+      console.warn('[autostart] toggle failed:', e);
+    } finally {
+      setAutostartBusy(false);
+    }
+  }, []);
+
   return (
     <div style={{ animation: 'fade-up 0.22s ease both' }}>
       <SectionHead
@@ -445,6 +521,13 @@ function WindowSection() {
         description="Closing the window hides it to the system tray so scheduled flows keep firing. Quit from the tray menu to fully exit."
       >
         <Toggle value={settings.closeToTray} onChange={v => update({ closeToTray: v })} />
+      </SettingRow>
+      <SettingRow
+        index={3}
+        label="Launch at Login"
+        description="Start Autoflow automatically when you log in to Windows. Cron flows begin firing immediately in the background."
+      >
+        <Toggle value={autostart} onChange={toggleAutostart} disabled={autostartBusy} />
       </SettingRow>
     </div>
   );

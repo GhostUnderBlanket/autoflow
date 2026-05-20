@@ -2,18 +2,18 @@
 
 @theme {
   /* Canvas layers */
-  --color-canvas:  #080809;
-  --color-surface: #0f0f12;
-  --color-raised:  #171720;
+  --color-canvas:  #111214;
+  --color-surface: #191a1c;
+  --color-raised:  #222426;
 
   /* Borders */
-  --color-wire:     #1d1d24;
-  --color-wire-lit: #2e2e3c;
+  --color-wire:     #2e3033;
+  --color-wire-lit: #3f4245;
 
   /* Ink */
-  --color-ink:       #dddde8;
-  --color-ink-dim:   #7070a0;
-  --color-ink-ghost: #353548;
+  --color-ink:       #e2e2e2;
+  --color-ink-dim:   #888888;
+  --color-ink-ghost: #525558;
 
   /* Accent */
   --color-accent:      #6d5bef;
@@ -34,14 +34,14 @@
 /* Declaring these outside @theme ensures they are always available as
    var(--color-*) regardless of how Tailwind v4 layers the @theme output. */
 :root {
-  --color-canvas:    #080809;
-  --color-surface:   #0f0f12;
-  --color-raised:    #171720;
-  --color-wire:      #1d1d24;
-  --color-wire-lit:  #2e2e3c;
-  --color-ink:       #dddde8;
-  --color-ink-dim:   #7070a0;
-  --color-ink-ghost: #353548;
+  --color-canvas:    #111214;
+  --color-surface:   #191a1c;
+  --color-raised:    #222426;
+  --color-wire:      #2e3033;
+  --color-wire-lit:  #3f4245;
+  --color-ink:       #e2e2e2;
+  --color-ink-dim:   #888888;
+  --color-ink-ghost: #525558;
 }
 
 /* ─── Light theme overrides ─────────────────── */
@@ -176,22 +176,22 @@ body {
 .react-flow__controls {
   border-radius: 8px !important;
   overflow: hidden;
-  border: 1px solid #1d1d24 !important;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.5) !important;
-  background: #0f0f12 !important;
+  border: 1px solid #2e3033 !important;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4) !important;
+  background: #191a1c !important;
 }
 .react-flow__controls-button {
-  background: #0f0f12 !important;
-  border-bottom: 1px solid #1d1d24 !important;
-  color: #7070a0 !important;
+  background: #191a1c !important;
+  border-bottom: 1px solid #2e3033 !important;
+  color: #888888 !important;
   width: 26px !important;
   height: 26px !important;
   padding: 4px !important;
   transition: background 0.15s, color 0.15s;
 }
 .react-flow__controls-button:hover {
-  background: #171720 !important;
-  color: #dddde8 !important;
+  background: #222426 !important;
+  color: #e2e2e2 !important;
 }
 /* Controls — light */
 .light .react-flow__controls {

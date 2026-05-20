@@ -1,6 +1,8 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
+import { readTextFile, writeTextFile, exists as fsExists } from '@tauri-apps/plugin-fs';
+import { openUrl, openPath } from '@tauri-apps/plugin-opener';
 import type { Node, Edge } from '@xyflow/react';
 import type { AppSettings } from '../types/settings';
 import type { LogEntry } from '../types/flow';
@@ -148,17 +150,23 @@ function restRequest(
   interp: (s: string) => string,
   onLog: AddLog,
 ): SpawnHandle {
-  const baseUrl  = (settings.restBaseUrl || '').replace(/\/+$/, '');
-  const endpoint = interp(((d.endpoint as string) ?? '')).trim().replace(/^\/+/, '');
-  if (!baseUrl) {
-    onLog('   ✗ REST API base URL not configured (Settings → REST API)', 'error');
-    return { result: Promise.resolve({ exitCode: 1, stdout: '' }), kill: async () => {} };
+  const urlOverride = interp(((d.urlOverride as string) ?? '').trim());
+  let url: string;
+  if (urlOverride) {
+    url = urlOverride;
+  } else {
+    const baseUrl  = (settings.restBaseUrl || '').replace(/\/+$/, '');
+    const endpoint = interp(((d.endpoint as string) ?? '')).trim().replace(/^\/+/, '');
+    if (!baseUrl) {
+      onLog('   ✗ REST API base URL not configured (Settings → REST API)', 'error');
+      return { result: Promise.resolve({ exitCode: 1, stdout: '' }), kill: async () => {} };
+    }
+    if (!endpoint) {
+      onLog('   ✗ endpoint is empty', 'error');
+      return { result: Promise.resolve({ exitCode: 1, stdout: '' }), kill: async () => {} };
+    }
+    url = `${baseUrl}/${endpoint}`;
   }
-  if (!endpoint) {
-    onLog('   ✗ endpoint is empty', 'error');
-    return { result: Promise.resolve({ exitCode: 1, stdout: '' }), kill: async () => {} };
-  }
-  const url      = `${baseUrl}/${endpoint}`;
   const method   = (((d.method as string) || 'POST').toUpperCase());
   const override = ((d.tokenOverride as string) ?? '').trim();
   const token    = override || settings.restToken;
@@ -231,13 +239,14 @@ function execNode(
   results: Map<string, NodeRunResult>,
   parents: string[],
   variables: Record<string, string>,
+  loopItem?: string,
 ): SpawnHandle | null {
   const d    = node.data as Record<string, unknown>;
   const type = node.type ?? 'script';
 
-  if (type === 'trigger' || type === 'condition') return null;
+  if (type === 'trigger' || type === 'condition' || type === 'loop') return null;
 
-  const ctx = { results, parents, variables };
+  const ctx = { results, parents, variables, loopItem };
   const interp = (s: string) => interpolate(s, ctx);
 
   const workspacePath = useWorkspaceStore.getState().path ?? '';
@@ -246,6 +255,14 @@ function execNode(
 
   if (type === 'rest') {
     return restRequest(d, settings, interp, onLog);
+  }
+
+  if (type === 'file') {
+    return fileNode(d, interp, onLog);
+  }
+
+  if (type === 'openurl') {
+    return openUrlNode(d, interp, onLog);
   }
 
   // Script node
@@ -258,6 +275,87 @@ function execNode(
   else                        { program = 'cmd';         args = ['/c', script]; }
 
   return spawnSubprocess(id, program, args, cwd ? interp(cwd) : cwd, onLog);
+}
+
+/* ─── File node ────────────────────────────────────────────── */
+
+function fileNode(
+  d: Record<string, unknown>,
+  interp: (s: string) => string,
+  onLog: AddLog,
+): SpawnHandle {
+  const op      = (d.operation as string) || 'read';
+  const path    = interp((d.path as string) ?? '').trim();
+  const content = interp((d.content as string) ?? '');
+
+  const result = (async (): Promise<{ exitCode: number | null; stdout: string }> => {
+    if (!path) {
+      onLog('   ✗ file path is empty', 'error');
+      return { exitCode: 1, stdout: '' };
+    }
+    try {
+      if (op === 'read') {
+        onLog(`   read: ${path}`, 'info');
+        const text = await readTextFile(path);
+        onLog(truncate(text, 300), 'info');
+        return { exitCode: 0, stdout: text };
+      }
+      if (op === 'write') {
+        onLog(`   write: ${path}`, 'info');
+        await writeTextFile(path, content);
+        onLog('   ✓ written', 'success');
+        return { exitCode: 0, stdout: path };
+      }
+      if (op === 'append') {
+        onLog(`   append: ${path}`, 'info');
+        await writeTextFile(path, content, { append: true });
+        onLog('   ✓ appended', 'success');
+        return { exitCode: 0, stdout: path };
+      }
+      if (op === 'exists') {
+        const e = await fsExists(path);
+        onLog(`   exists: ${path} → ${e}`, 'info');
+        return { exitCode: e ? 0 : 1, stdout: String(e) };
+      }
+      return { exitCode: 1, stdout: '' };
+    } catch (e) {
+      onLog(`   ✗ ${String(e)}`, 'error');
+      return { exitCode: 1, stdout: '' };
+    }
+  })();
+
+  return { result, kill: async () => {} };
+}
+
+/* ─── Open URL node ────────────────────────────────────────── */
+
+function openUrlNode(
+  d: Record<string, unknown>,
+  interp: (s: string) => string,
+  onLog: AddLog,
+): SpawnHandle {
+  const url = interp((d.url as string) ?? '').trim();
+
+  const result = (async (): Promise<{ exitCode: number | null; stdout: string }> => {
+    if (!url) {
+      onLog('   ✗ URL is empty', 'error');
+      return { exitCode: 1, stdout: '' };
+    }
+    try {
+      onLog(`   opening: ${url}`, 'info');
+      if (/^https?:\/\//i.test(url)) {
+        await openUrl(url);
+      } else {
+        await openPath(url);
+      }
+      return { exitCode: 0, stdout: url };
+    } catch (e) {
+      onLog(`   ✗ ${String(e)}`, 'error');
+      return { exitCode: 1, stdout: '' };
+    }
+  })();
+
+  return { result, kill: async () => {} };
 }
 
 /* ─── Public API ────────────────────────────────────────────── */
@@ -303,6 +401,7 @@ export function runFlow(
      */
     const skipped       = new Set<string>();
     const liveBranches  = new Map<string, 'true' | 'false'>(); // condition id → branch that's alive
+    const loopManaged   = new Set<string>();                    // nodes run inside a loop body
 
     function edgeIsDead(e: Edge): boolean {
       if (skipped.has(e.source)) return true;
@@ -320,6 +419,9 @@ export function runFlow(
 
     for (const node of ordered) {
       if (signal.stopped) break;
+
+      // Already executed as the body of a loop — skip normal processing.
+      if (loopManaged.has(node.id)) continue;
 
       const d     = node.data as Record<string, unknown>;
       const label = (d.label as string) || node.type || node.id;
@@ -344,6 +446,110 @@ export function runFlow(
         cbs.onLog(`   ↳ ${branch === 'true' ? '✓ true branch' : '✗ false branch'}`, branch === 'true' ? 'success' : 'warn');
         results.set(node.id, { id: node.id, label, stdout: branch, exitCode: 0 });
         cbs.onNodeDone(node.id, 0);
+        continue;
+      }
+
+      // Loop: run the directly connected body node N times.
+      if (type === 'loop') {
+        const loopMode  = (d.mode as string) || 'repeat';
+        const loopCount = Math.max(1, Number(d.count) || 3);
+        const loopDelay = Math.max(0, Number(d.delay) || 0);
+        const loopSep   = (d.separator as string) || 'newline';
+        const sleep     = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+
+        const bodyEdge = edges.find(e => e.source === node.id && !edgeIsDead(e));
+        const bodyNode = bodyEdge ? nodes.find(n => n.id === bodyEdge.target) : undefined;
+
+        if (!bodyNode) {
+          cbs.onLog('   ⚠ no node connected — nothing to loop', 'warn');
+          results.set(node.id, { id: node.id, label, stdout: '', exitCode: 0 });
+          cbs.onNodeDone(node.id, 0);
+          continue;
+        }
+
+        const bodyD     = bodyNode.data as Record<string, unknown>;
+        const bodyLabel = (bodyD.label as string) || bodyNode.type || bodyNode.id;
+        loopManaged.add(bodyNode.id);
+
+        const execBody = async (loopItem?: string) => {
+          cbs.onLog(`   → [${bodyNode.type}] ${bodyLabel}`, 'info');
+          cbs.onNodeStart(bodyNode.id);
+          const h = execNode(bodyNode, settings, cbs.onLog, results, [node.id], variables, loopItem);
+          if (!h) {
+            results.set(bodyNode.id, { id: bodyNode.id, label: bodyLabel, stdout: '', exitCode: 0 });
+            cbs.onNodeDone(bodyNode.id, 0);
+            return { exitCode: 0 as number | null, stdout: '' };
+          }
+          stopCurrent = h.kill;
+          const r = await h.result;
+          stopCurrent = null;
+          results.set(bodyNode.id, { id: bodyNode.id, label: bodyLabel, stdout: r.stdout, exitCode: r.exitCode });
+          cbs.onNodeDone(bodyNode.id, r.exitCode);
+          const ok = r.exitCode === 0 || r.exitCode === null;
+          cbs.onLog(ok ? `   ✓ exit ${r.exitCode ?? 'ok'}` : `   ✗ exit ${r.exitCode}`, ok ? 'success' : 'error');
+          return r;
+        };
+
+        const outputs: string[] = [];
+        let loopOk = true;
+
+        if (loopMode === 'repeat') {
+          for (let i = 0; i < loopCount; i++) {
+            if (signal.stopped) break;
+            cbs.onLog(`   iteration ${i + 1}/${loopCount}`, 'info');
+            const r = await execBody();
+            if (r.stdout.trim()) outputs.push(r.stdout.trim());
+            if (r.exitCode !== 0 && settings.stopOnError) { loopOk = false; break; }
+            if (loopDelay > 0 && i < loopCount - 1 && !signal.stopped) {
+              cbs.onLog(`   waiting ${loopDelay}ms…`, 'info');
+              await sleep(loopDelay);
+            }
+          }
+        } else if (loopMode === 'retry') {
+          for (let attempt = 0; attempt < loopCount; attempt++) {
+            if (signal.stopped) break;
+            if (attempt > 0) cbs.onLog(`   retry attempt ${attempt + 1}/${loopCount}`, 'warn');
+            const r = await execBody();
+            if (r.stdout.trim()) outputs.push(r.stdout.trim());
+            if (r.exitCode === 0) break;
+            if (attempt === loopCount - 1) { loopOk = false; cbs.onLog(`   all ${loopCount} attempts failed`, 'error'); break; }
+            if (loopDelay > 0 && !signal.stopped) {
+              cbs.onLog(`   waiting ${loopDelay}ms before retry…`, 'info');
+              await sleep(loopDelay);
+            }
+          }
+        } else if (loopMode === 'forEach') {
+          const upstream = parents.map(pid => results.get(pid)?.stdout?.trim() ?? '').filter(Boolean).join('\n');
+          let items: string[] = [];
+          if (loopSep === 'json-array') {
+            try {
+              const parsed = JSON.parse(upstream);
+              if (Array.isArray(parsed)) items = parsed.map(it => (typeof it === 'string' ? it : JSON.stringify(it)));
+            } catch { /* not a JSON array */ }
+          } else {
+            items = upstream.split('\n').filter(l => l.trim());
+          }
+          cbs.onLog(`   ${items.length} item(s) to process`, 'info');
+          for (let i = 0; i < items.length; i++) {
+            if (signal.stopped) break;
+            const item    = items[i];
+            const preview = item.length > 50 ? `${item.slice(0, 50)}…` : item;
+            cbs.onLog(`   [${i + 1}/${items.length}] ${preview}`, 'info');
+            const r = await execBody(item);
+            if (r.stdout.trim()) outputs.push(r.stdout.trim());
+            if (loopDelay > 0 && i < items.length - 1 && !signal.stopped) {
+              cbs.onLog(`   waiting ${loopDelay}ms…`, 'info');
+              await sleep(loopDelay);
+            }
+          }
+        }
+
+        const loopStdout = outputs.join('\n');
+        const loopExit   = loopOk ? 0 : 1;
+        results.set(node.id, { id: node.id, label, stdout: loopStdout, exitCode: loopExit });
+        cbs.onNodeDone(node.id, loopExit);
+        cbs.onLog(loopOk ? `   ✓ loop complete` : `   ✗ loop failed`, loopOk ? 'success' : 'error');
+        if (!loopOk && settings.stopOnError) { flowOk = false; break; }
         continue;
       }
 

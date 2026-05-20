@@ -2,7 +2,7 @@ import { type NodeProps } from '@xyflow/react';
 import { GitBranch } from 'lucide-react';
 import { BaseNode } from './BaseNode';
 
-const COLOR = '#f59e0b';
+const COLOR = '#00bfff';
 
 const OP_LABELS: Record<string, string> = {
   equals:     '==',

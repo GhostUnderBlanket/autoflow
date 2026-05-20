@@ -2,14 +2,23 @@ import { type NodeProps } from '@xyflow/react';
 import { Globe } from 'lucide-react';
 import { BaseNode } from './BaseNode';
 
-const COLOR = '#00bfff';
+const COLOR = '#ec4899';
 
 export function RestNode({ data, selected, isConnectable }: NodeProps) {
   const d = data as Record<string, unknown>;
 
-  const method   = ((d.method   as string) || 'POST').toUpperCase();
-  const endpoint = ((d.endpoint as string) ?? '').trim();
-  const label    = (d.label as string) || 'REST API';
+  const method      = ((d.method      as string) || 'POST').toUpperCase();
+  const endpoint    = ((d.endpoint    as string) ?? '').trim();
+  const urlOverride = ((d.urlOverride as string) ?? '').trim();
+  const label       = (d.label as string) || 'REST API';
+
+  let subline: string;
+  if (urlOverride) {
+    try { subline = new URL(urlOverride).hostname + new URL(urlOverride).pathname; }
+    catch { subline = urlOverride; }
+  } else {
+    subline = endpoint ? `/${endpoint.replace(/^\/+/, '')}` : '';
+  }
 
   return (
     <BaseNode
@@ -28,9 +37,9 @@ export function RestNode({ data, selected, isConnectable }: NodeProps) {
           {method}
         </span>
       </div>
-      {endpoint
-        ? <div className="text-[10px] text-ink-dim font-mono mt-0.5 truncate opacity-80" title={endpoint}>
-            /{endpoint.replace(/^\/+/, '')}
+      {subline
+        ? <div className="text-[10px] text-ink-dim font-mono mt-0.5 truncate opacity-80" title={urlOverride || endpoint}>
+            {subline}
           </div>
         : <div className="text-[10px] text-ink-ghost mt-0.5 italic">no endpoint set</div>
       }

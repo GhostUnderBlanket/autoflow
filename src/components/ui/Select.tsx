@@ -38,7 +38,11 @@ export function Select({
       if (popup?.contains(e.target as Node)) return;
       setOpen(false);
     };
-    const onScroll = () => setOpen(false);
+    const onScroll = (e: Event) => {
+      const popup = document.getElementById('select-popup');
+      if (popup?.contains(e.target as Node)) return;
+      setOpen(false);
+    };
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
     document.addEventListener('mousedown', close);
     window.addEventListener('scroll', onScroll, true);

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { X, Timer, Globe, Terminal, GitBranch, Plus, Minus, Check, AlertTriangle, Play, Loader2 } from 'lucide-react';
+import { X, Timer, Globe, Terminal, GitBranch, Plus, Minus, Check, AlertTriangle, Play, Loader2, FolderOpen, ExternalLink, Repeat2 } from 'lucide-react';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import { useSettingsStore } from '../store/settingsStore';
 import { interpolate } from '../lib/interpolate';
@@ -23,10 +23,13 @@ interface NodePanelProps {
 }
 
 const CFG = {
-  trigger:   { color: '#6d5bef', icon: <Timer size={13} />,     label: 'Trigger'   },
-  rest:      { color: '#00bfff', icon: <Globe size={13} />,        label: 'REST API'  },
-  script:    { color: '#05c58c', icon: <Terminal size={13} />,  label: 'Script'    },
-  condition: { color: '#f59e0b', icon: <GitBranch size={13} />, label: 'Condition' },
+  trigger:   { color: '#6d5bef', icon: <Timer size={13} />,        label: 'Trigger'   },
+  condition: { color: '#00bfff', icon: <GitBranch size={13} />,    label: 'Condition' },
+  loop:      { color: '#05c58c', icon: <Repeat2 size={13} />,      label: 'Loop'      },
+  file:      { color: '#f59e0b', icon: <FolderOpen size={13} />,   label: 'File'      },
+  script:    { color: '#f97316', icon: <Terminal size={13} />,     label: 'Script'    },
+  rest:      { color: '#ec4899', icon: <Globe size={13} />,        label: 'REST API'  },
+  openurl:   { color: '#a78bfa', icon: <ExternalLink size={13} />, label: 'Open URL'  },
 } as const;
 
 /* ─── Sub-components ─────────────────────────── */
@@ -253,6 +256,7 @@ function RestFields({
   const body     = (data.body as string) ?? '';
   const rows     = ((data.bodyRows as BodyRow[]) ?? []) as BodyRow[];
   const tokenOverride = (data.tokenOverride as string) ?? '';
+  const urlOverride   = (data.urlOverride   as string) ?? '';
 
   const [testState,  setTestState]  = useState<'idle' | 'running' | 'ok' | 'err'>('idle');
   const [testResult, setTestResult] = useState<TestResult | null>(null);
@@ -264,19 +268,25 @@ function RestFields({
       const settings = useSettingsStore.getState().settings;
       const varCtx   = { results: new Map(), parents: [], variables: flowVariables ?? {} };
       const interp   = (s: string) => interpolate(s, varCtx);
-      const baseUrl  = (settings.restBaseUrl || '').replace(/\/+$/, '');
-      const ep       = interp(endpoint).trim().replace(/^\/+/, '');
-      if (!baseUrl) {
-        setTestResult({ ok: false, status: 'Config error', body: 'Base URL not set in Settings → REST API' });
-        setTestState('err');
-        return;
+      const urlOvr   = interp(urlOverride.trim());
+      let url: string;
+      if (urlOvr) {
+        url = urlOvr;
+      } else {
+        const baseUrl = (settings.restBaseUrl || '').replace(/\/+$/, '');
+        const ep      = interp(endpoint).trim().replace(/^\/+/, '');
+        if (!baseUrl) {
+          setTestResult({ ok: false, status: 'Config error', body: 'Base URL not set in Settings → REST API' });
+          setTestState('err');
+          return;
+        }
+        if (!ep) {
+          setTestResult({ ok: false, status: 'Config error', body: 'Endpoint is empty' });
+          setTestState('err');
+          return;
+        }
+        url = `${baseUrl}/${ep}`;
       }
-      if (!ep) {
-        setTestResult({ ok: false, status: 'Config error', body: 'Endpoint is empty' });
-        setTestState('err');
-        return;
-      }
-      const url     = `${baseUrl}/${ep}`;
       const token   = tokenOverride.trim() || settings.restToken;
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -361,7 +371,21 @@ function RestFields({
       </div>
 
       <div>
-        <FieldLabel>Endpoint</FieldLabel>
+        <FieldLabel>URL Override</FieldLabel>
+        <RefField
+          value={urlOverride}
+          onChange={v => set('urlOverride', v)}
+          upstream={upstream}
+          flowVariables={flowVariables}
+          placeholder="https://api.example.com/path  (optional)"
+        />
+        <p className="text-[10px] text-ink-ghost mt-1.5 leading-relaxed">
+          Full URL for this node only. When set, the global base URL and endpoint below are ignored.
+        </p>
+      </div>
+
+      <div>
+        <FieldLabel>{urlOverride.trim() ? <span className="line-through opacity-40">Endpoint</span> : 'Endpoint'}</FieldLabel>
         <RefField
           value={endpoint}
           onChange={v => set('endpoint', v)}
@@ -369,9 +393,11 @@ function RestFields({
           flowVariables={flowVariables}
           placeholder="endpoint"
         />
-        <p className="text-[10px] text-ink-ghost mt-1.5 leading-relaxed font-mono">
-          → {fullPath || '(set in Settings → REST API)'}
-        </p>
+        {!urlOverride.trim() && (
+          <p className="text-[10px] text-ink-ghost mt-1.5 leading-relaxed font-mono">
+            → {fullPath || '(set in Settings → REST API)'}
+          </p>
+        )}
       </div>
 
       {hasBody && (
@@ -580,6 +606,213 @@ function ConditionFields({
   );
 }
 
+/* ─── File fields ────────────────────────────── */
+
+const FILE_OPS = [
+  { value: 'read',   label: 'Read',   description: 'Read file contents → stdout' },
+  { value: 'write',  label: 'Write',  description: 'Write content to file (overwrite)' },
+  { value: 'append', label: 'Append', description: 'Append content to file' },
+  { value: 'exists', label: 'Exists', description: 'Output true/false; exit 0 if exists' },
+] as const;
+
+function FileFields({
+  data, upstream, set, flowVariables,
+}: {
+  data:           Record<string, unknown>;
+  upstream:       ReturnType<typeof getUpstreamNodes>;
+  set:            (key: string, value: unknown) => void;
+  flowVariables?: Record<string, string>;
+}) {
+  const op      = (data.operation as string) || 'read';
+  const path    = (data.path as string) ?? '';
+  const content = (data.content as string) ?? '';
+  const hasContent = op === 'write' || op === 'append';
+  return (
+    <>
+      <div>
+        <FieldLabel>Operation</FieldLabel>
+        <Select
+          value={op}
+          options={FILE_OPS.map(o => ({ value: o.value, label: o.label, description: o.description }))}
+          onChange={v => set('operation', v)}
+        />
+      </div>
+      <div>
+        <FieldLabel>File Path</FieldLabel>
+        <RefField
+          value={path}
+          onChange={v => set('path', v)}
+          upstream={upstream}
+          flowVariables={flowVariables}
+          placeholder="/absolute/path/to/file.txt"
+        />
+        <p className="text-[10px] text-ink-ghost mt-1.5 leading-relaxed">
+          Use an absolute path or <span className="font-mono">${'${var:WORKSPACE}'}/file.txt</span>.
+        </p>
+      </div>
+      {hasContent && (
+        <div>
+          <FieldLabel>Content</FieldLabel>
+          <RefField
+            value={content}
+            onChange={v => set('content', v)}
+            upstream={upstream}
+            flowVariables={flowVariables}
+            multiline
+            rows={5}
+            placeholder={op === 'append' ? 'text to append…' : 'text to write…'}
+          />
+          <p className="text-[10px] text-ink-ghost mt-1.5 leading-relaxed">
+            Use <span className="font-mono">${'${prev}'}</span> to write upstream output.
+          </p>
+        </div>
+      )}
+      {op === 'read' && (
+        <div className="rounded-md bg-raised/50 border border-wire/60 p-2.5">
+          <p className="text-[10px] text-ink-ghost leading-relaxed">
+            File contents become this node's stdout — use{' '}
+            <span className="font-mono">${'${this-node-label}'}</span> in downstream nodes,
+            or <span className="font-mono">${'${this-node-label}.fieldName'}</span> to extract a JSON field.
+          </p>
+        </div>
+      )}
+    </>
+  );
+}
+
+/* ─── Open URL fields ────────────────────────── */
+
+function OpenUrlFields({
+  data, upstream, set, flowVariables,
+}: {
+  data:           Record<string, unknown>;
+  upstream:       ReturnType<typeof getUpstreamNodes>;
+  set:            (key: string, value: unknown) => void;
+  flowVariables?: Record<string, string>;
+}) {
+  const url = (data.url as string) ?? '';
+  return (
+    <>
+      <div>
+        <FieldLabel>URL or Path</FieldLabel>
+        <RefField
+          value={url}
+          onChange={v => set('url', v)}
+          upstream={upstream}
+          flowVariables={flowVariables}
+          placeholder="https://example.com or C:\path\to\file"
+        />
+        <p className="text-[10px] text-ink-ghost mt-1.5 leading-relaxed">
+          <span className="font-mono">http://</span> / <span className="font-mono">https://</span> URLs open in the default browser.
+          All other paths open with the default system app.
+        </p>
+      </div>
+    </>
+  );
+}
+
+/* ─── Loop fields ────────────────────────────── */
+
+function LoopFields({
+  data, set,
+}: {
+  data:           Record<string, unknown>;
+  upstream?:      ReturnType<typeof getUpstreamNodes>;
+  set:            (key: string, value: unknown) => void;
+  flowVariables?: Record<string, string>;
+}) {
+  const mode  = (data.mode as string) || 'repeat';
+  const count = Number(data.count) || 3;
+  const sep   = (data.separator as string) || 'newline';
+
+  return (
+    <>
+      <div>
+        <FieldLabel>Mode</FieldLabel>
+        <ToggleGroup
+          value={mode as 'repeat' | 'retry' | 'forEach'}
+          options={['repeat', 'retry', 'forEach']}
+          onChange={v => set('mode', v)}
+        />
+        <p className="text-[10px] text-ink-ghost mt-1.5 leading-relaxed">
+          {mode === 'repeat'  && 'Run the script N times regardless of exit code.'}
+          {mode === 'retry'   && 'Run the script until exit 0, up to N attempts.'}
+          {mode === 'forEach' && 'Run the script once per item from upstream output.'}
+        </p>
+      </div>
+
+      {(mode === 'repeat' || mode === 'retry') && (
+        <div>
+          <FieldLabel>{mode === 'repeat' ? 'Iterations' : 'Max Attempts'}</FieldLabel>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => set('count', Math.max(1, count - 1))}
+              disabled={count <= 1}
+              className="w-[26px] h-[26px] rounded-md bg-raised border border-wire text-ink-dim
+                         hover:text-ink hover:border-wire-lit transition-colors text-[14px] font-mono
+                         disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center"
+            >−</button>
+            <span className="text-[13px] font-mono text-ink tabular-nums w-8 text-center">{count}</span>
+            <button
+              onClick={() => set('count', Math.min(100, count + 1))}
+              disabled={count >= 100}
+              className="w-[26px] h-[26px] rounded-md bg-raised border border-wire text-ink-dim
+                         hover:text-ink hover:border-wire-lit transition-colors text-[14px] font-mono
+                         disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center"
+            >+</button>
+          </div>
+        </div>
+      )}
+
+      {mode === 'forEach' && (
+        <div>
+          <FieldLabel>Item Separator</FieldLabel>
+          <ToggleGroup
+            value={sep as 'newline' | 'json-array'}
+            options={['newline', 'json-array']}
+            onChange={v => set('separator', v)}
+          />
+          <p className="text-[10px] text-ink-ghost mt-1.5 leading-relaxed">
+            {sep === 'newline'
+              ? 'Each line of upstream stdout becomes one item.'
+              : 'Upstream stdout is parsed as a JSON array; each element is one item.'}
+          </p>
+        </div>
+      )}
+
+      {(mode === 'repeat' || mode === 'retry' || mode === 'forEach') && (
+        <div>
+          <FieldLabel>Delay between runs (ms)</FieldLabel>
+          <div className="flex items-center gap-1.5">
+            {[0, 500, 1000, 2000, 5000].map(ms => (
+              <button
+                key={ms}
+                onClick={() => set('delay', ms)}
+                className={clsx(
+                  'px-2 py-[5px] rounded-md text-[10.5px] font-mono transition-colors',
+                  Number(data.delay ?? 0) === ms
+                    ? 'bg-accent/14 text-accent-soft border border-accent/28'
+                    : 'bg-raised text-ink-dim border border-wire hover:text-ink hover:border-wire-lit',
+                )}
+              >
+                {ms === 0 ? 'none' : ms >= 1000 ? `${ms / 1000}s` : `${ms}ms`}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="rounded-md bg-raised/50 border border-wire/60 p-2.5">
+        <p className="text-[10px] text-ink-ghost leading-relaxed">
+          {mode === 'repeat'  && <>Runs the connected node <strong className="text-ink-dim">{count}×</strong>. Outputs from all iterations are joined.</>}
+          {mode === 'retry'   && <>Runs the connected node until it exits 0, up to <strong className="text-ink-dim">{count}</strong> attempts.</>}
+          {mode === 'forEach' && <>Splits upstream output into items and runs the connected node once per item. Use <span className="font-mono">${'${loop.item}'}</span> in that node.</>}
+        </p>
+      </div>
+    </>
+  );
+}
+
 /* ─── NodePanel ──────────────────────────────── */
 
 export function NodePanel({ node, nodes, edges, onUpdate, onClose, flowVariables }: NodePanelProps) {
@@ -587,8 +820,8 @@ export function NodePanel({ node, nodes, edges, onUpdate, onClose, flowVariables
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   const safeNode = node!;
 
-  const type = (safeNode.type ?? 'script') as keyof typeof CFG;
-  const cfg  = CFG[type] ?? CFG.script;
+  const type = (safeNode.type ?? 'script') as keyof typeof CFG | string;
+  const cfg  = (CFG as Record<string, typeof CFG[keyof typeof CFG]>)[type] ?? CFG.script;
   const data = safeNode.data as Record<string, unknown>;
 
   function set(key: string, value: unknown) {
@@ -720,6 +953,21 @@ export function NodePanel({ node, nodes, edges, onUpdate, onClose, flowVariables
         {/* ── Condition ─────────────────────── */}
         {type === 'condition' && (
           <ConditionFields data={data} upstream={upstream} set={set} flowVariables={flowVariables} />
+        )}
+
+        {/* ── File ──────────────────────────── */}
+        {type === 'file' && (
+          <FileFields data={data} upstream={upstream} set={set} flowVariables={flowVariables} />
+        )}
+
+        {/* ── Open URL ──────────────────────── */}
+        {type === 'openurl' && (
+          <OpenUrlFields data={data} upstream={upstream} set={set} flowVariables={flowVariables} />
+        )}
+
+        {/* ── Loop ──────────────────────────── */}
+        {type === 'loop' && (
+          <LoopFields data={data} upstream={upstream} set={set} flowVariables={flowVariables} />
         )}
 
       </div>
