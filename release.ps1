@@ -43,19 +43,20 @@ function Set-FileUtf8NoBom([string]$path, [string]$content) {
 }
 
 function New-StoredZip([string]$sourcePath, [string]$destZip) {
-    Add-Type -AssemblyName 'System.IO.Compression'
-    Add-Type -AssemblyName 'System.IO.Compression.FileSystem'
+    # Use 7-Zip (-mx=0) to guarantee STORED method (method 0).
+    # .NET Framework's ZipFile writes Deflate even with NoCompression,
+    # which the Tauri updater rejects with "Compression method not supported".
+    $7z = (Get-Command 7z -ErrorAction SilentlyContinue |
+           Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue)
+    if (-not $7z) { $7z = "C:\Program Files\7-Zip\7z.exe" }
+    if (-not (Test-Path $7z)) { Write-Fail "7-Zip not found. Install from https://7-zip.org" }
+
     if (Test-Path $destZip) { Remove-Item $destZip -Force }
-    $mode    = [System.IO.Compression.ZipArchiveMode]::Create
-    $noComp  = [System.IO.Compression.CompressionLevel]::NoCompression
-    $zip     = [System.IO.Compression.ZipFile]::Open($destZip, $mode)
-    [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
-        $zip,
-        $sourcePath,
-        [System.IO.Path]::GetFileName($sourcePath),
-        $noComp
-    )
-    $zip.Dispose()
+    # Run 7z from the file's directory so the zip entry has just the filename (no path)
+    Push-Location (Split-Path $sourcePath)
+    & $7z a -tzip -mx=0 $destZip (Split-Path $sourcePath -Leaf) | Out-Null
+    Pop-Location
+    if ($LASTEXITCODE -ne 0) { Write-Fail "7-Zip failed creating $destZip" }
 }
 
 # ── Pre-flight checks ─────────────────────────────────────────────────────────
@@ -115,8 +116,9 @@ Write-Ok "src-tauri/tauri.conf.json"
 
 Write-Step "Building Autoflow $Version (release profile - this takes a few minutes)"
 
-$env:TAURI_SIGNING_PRIVATE_KEY          = $keyFile
+$env:TAURI_SIGNING_PRIVATE_KEY_PATH     = $keyFile
 $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = $keyPassword
+Remove-Item Env:\TAURI_SIGNING_PRIVATE_KEY -ErrorAction SilentlyContinue
 
 Set-Location $root
 npm run tauri build
