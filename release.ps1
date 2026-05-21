@@ -145,7 +145,7 @@ $nsisZip = Join-Path $nsisExe.DirectoryName "$($nsisExe.BaseName).nsis.zip"
 New-StoredZip $nsisExe.FullName $nsisZip
 Write-Ok "Created $([System.IO.Path]::GetFileName($nsisZip))"
 
-npx tauri signer sign --private-key-path $keyFile --password $keyPassword $nsisZip
+npx tauri signer sign --password $keyPassword $nsisZip
 if ($LASTEXITCODE -ne 0) { Write-Fail "Failed to sign NSIS zip" }
 $nsisSig = (Get-Content "$nsisZip.sig" -Raw).Trim()
 Write-Ok "Signed NSIS zip"
@@ -154,7 +154,7 @@ $msiZip = Join-Path $msiFile.DirectoryName "$($msiFile.BaseName).msi.zip"
 New-StoredZip $msiFile.FullName $msiZip
 Write-Ok "Created $([System.IO.Path]::GetFileName($msiZip))"
 
-npx tauri signer sign --private-key-path $keyFile --password $keyPassword $msiZip
+npx tauri signer sign --password $keyPassword $msiZip
 if ($LASTEXITCODE -ne 0) { Write-Fail "Failed to sign MSI zip" }
 Write-Ok "Signed MSI zip"
 
