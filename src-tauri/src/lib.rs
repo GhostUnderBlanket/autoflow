@@ -109,6 +109,61 @@ fn get_cwd() -> Result<String, String> {
         .map_err(|e| e.to_string())
 }
 
+// ── Windows autostart (bypasses tauri-plugin-autostart to ensure quoted path) ─
+
+#[cfg(target_os = "windows")]
+const AUTOSTART_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
+#[cfg(target_os = "windows")]
+const AUTOSTART_NAME: &str = "Autoflow";
+
+#[command]
+fn autostart_enable() -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        use winreg::RegKey;
+        use winreg::enums::{HKEY_CURRENT_USER, KEY_SET_VALUE};
+        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+        let path = exe.to_string_lossy().to_string();
+        // Always quote the path so spaces in "Program Files" don't break startup
+        let value = format!("\"{}\"", path);
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let (key, _) = hkcu.create_subkey_with_flags(AUTOSTART_KEY, KEY_SET_VALUE)
+            .map_err(|e| e.to_string())?;
+        key.set_value(AUTOSTART_NAME, &value).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[command]
+fn autostart_disable() -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        use winreg::RegKey;
+        use winreg::enums::{HKEY_CURRENT_USER, KEY_SET_VALUE};
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        if let Ok((key, _)) = hkcu.create_subkey_with_flags(AUTOSTART_KEY, KEY_SET_VALUE) {
+            let _ = key.delete_value(AUTOSTART_NAME); // ignore "not found"
+        }
+    }
+    Ok(())
+}
+
+#[command]
+fn autostart_is_enabled() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        use winreg::RegKey;
+        use winreg::enums::HKEY_CURRENT_USER;
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        if let Ok(key) = hkcu.open_subkey(AUTOSTART_KEY) {
+            return key.get_value::<String, _>(AUTOSTART_NAME).is_ok();
+        }
+        return false;
+    }
+    #[cfg(not(target_os = "windows"))]
+    false
+}
+
 // ── Generic text file IO (used by flow import/export) ─────────────────────
 
 #[command]
@@ -609,6 +664,23 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .setup(|app| {
+            // ── Fix autostart path quoting on Windows (one-time migration) ─
+            #[cfg(target_os = "windows")]
+            {
+                use winreg::RegKey;
+                use winreg::enums::{HKEY_CURRENT_USER, KEY_READ, KEY_SET_VALUE};
+                if let Ok(key) = RegKey::predef(HKEY_CURRENT_USER).open_subkey_with_flags(AUTOSTART_KEY, KEY_READ | KEY_SET_VALUE) {
+                    if let Ok(val) = key.get_value::<String, _>(AUTOSTART_NAME) {
+                        // If the value exists but isn't quoted, rewrite it with quotes
+                        if !val.starts_with('"') {
+                            if let Ok(exe) = std::env::current_exe() {
+                                let fixed = format!("\"{}\"", exe.to_string_lossy());
+                                let _ = key.set_value(AUTOSTART_NAME, &fixed);
+                            }
+                        }
+                    }
+                }
+            }
             // ── System tray ──────────────────────────────────────────────
             let handle = app.handle().clone();
             let show_item  = MenuItem::with_id(&handle, "show",  "Show",  true, None::<&str>)?;
@@ -674,6 +746,9 @@ pub fn run() {
             scheduler_get_state,
             set_close_to_tray,
             show_main_window,
+            autostart_enable,
+            autostart_disable,
+            autostart_is_enabled,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

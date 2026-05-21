@@ -6,7 +6,7 @@ import { relaunch } from '@tauri-apps/plugin-process';
 import { clsx } from 'clsx';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
-import { enable as autostartEnable, disable as autostartDisable, isEnabled as autostartIsEnabled } from '@tauri-apps/plugin-autostart';
+import { invoke } from '@tauri-apps/api/core';
 import { openPath } from '@tauri-apps/plugin-opener';
 import { useSettingsStore } from '../store/settingsStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
@@ -472,13 +472,13 @@ function WindowSection() {
   const [autostartBusy, setAutostartBusy] = useState(false);
 
   useEffect(() => {
-    autostartIsEnabled().then(setAutostart).catch(() => {});
+    invoke<boolean>('autostart_is_enabled').then(setAutostart).catch(() => {});
   }, []);
 
   const toggleAutostart = useCallback(async (v: boolean) => {
     setAutostartBusy(true);
     try {
-      if (v) await autostartEnable(); else await autostartDisable();
+      if (v) await invoke('autostart_enable'); else await invoke('autostart_disable');
       setAutostart(v);
     } catch (e) {
       console.warn('[autostart] toggle failed:', e);
