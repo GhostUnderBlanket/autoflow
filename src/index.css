@@ -146,6 +146,16 @@ body {
   cursor: default;
 }
 
+/* Group nodes: remove ReactFlow's default white background, border, and padding
+   so only the GroupNode's own styled div is visible. */
+.react-flow__node-group {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+
 /* Handles — let inline styles in BaseNode drive everything visual */
 .react-flow__handle {
   transition: transform 0.15s, opacity 0.15s;

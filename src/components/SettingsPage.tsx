@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
-import { Check, RotateCcw, Globe, AlertTriangle, FolderOpen, Eye, EyeOff, RefreshCw, Download, BookOpen } from 'lucide-react';
+import { Check, RotateCcw, Globe, AlertTriangle, FolderOpen, Eye, EyeOff, RefreshCw, Download, BookOpen, Plus, Trash2, Lock } from 'lucide-react';
+import { useSecretsStore } from '../store/secretsStore';
 import { check as checkForUpdate, type Update } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { clsx } from 'clsx';
@@ -17,14 +18,15 @@ import type { ReactNode } from 'react';
 
 /* ─── Category nav ───────────────────────────── */
 
-type Category = 'workspace' | 'rest' | 'shell' | 'window' | 'runlog' | 'about';
+type Category = 'workspace' | 'rest' | 'shell' | 'window' | 'runlog' | 'secrets' | 'about';
 
 const CATEGORIES: { id: Category; label: string; sub: string }[] = [
   { id: 'workspace', label: 'Workspace',         sub: 'where files live' },
-  { id: 'window',    label: 'Window & Tray',     sub: '3 settings'  },
+  { id: 'window',    label: 'Window & Tray',     sub: '4 settings'  },
   { id: 'rest',      label: 'REST API',          sub: '2 settings'  },
   { id: 'shell',     label: 'Shell & Execution', sub: '3 settings'  },
   { id: 'runlog',    label: 'Run Log',           sub: '1 setting'   },
+  { id: 'secrets',   label: 'Secrets',           sub: '${secret:…}' },
   { id: 'about',     label: 'About',             sub: 'info & keys' },
 ];
 
@@ -468,24 +470,36 @@ function RunLogSection() {
 
 function WindowSection() {
   const { settings, update } = useSettingsStore();
-  const [autostart,    setAutostart]    = useState(false);
-  const [autostartBusy, setAutostartBusy] = useState(false);
+  const [autostart,      setAutostart]      = useState(false);
+  const [autostartBusy,  setAutostartBusy]  = useState(false);
+  const [launchMinimized, setLaunchMinimized] = useState(false);
 
   useEffect(() => {
     invoke<boolean>('autostart_is_enabled').then(setAutostart).catch(() => {});
+    invoke<boolean>('autostart_is_minimized').then(setLaunchMinimized).catch(() => {});
   }, []);
 
   const toggleAutostart = useCallback(async (v: boolean) => {
     setAutostartBusy(true);
     try {
-      if (v) await invoke('autostart_enable'); else await invoke('autostart_disable');
+      if (v) await invoke('autostart_enable', { minimized: launchMinimized });
+      else   await invoke('autostart_disable');
       setAutostart(v);
     } catch (e) {
       console.warn('[autostart] toggle failed:', e);
     } finally {
       setAutostartBusy(false);
     }
-  }, []);
+  }, [launchMinimized]);
+
+  const toggleLaunchMinimized = useCallback(async (v: boolean) => {
+    setLaunchMinimized(v);
+    // Re-register the autostart entry with the updated flag (no-op if autostart is off)
+    if (autostart) {
+      try { await invoke('autostart_enable', { minimized: v }); }
+      catch (e) { console.warn('[autostart] update minimized failed:', e); }
+    }
+  }, [autostart]);
 
   return (
     <div style={{ animation: 'fade-up 0.22s ease both' }}>
@@ -528,6 +542,13 @@ function WindowSection() {
         description="Start Autoflow automatically when you log in to Windows. Cron flows begin firing immediately in the background."
       >
         <Toggle value={autostart} onChange={toggleAutostart} disabled={autostartBusy} />
+      </SettingRow>
+      <SettingRow
+        index={4}
+        label="Start minimized to tray"
+        description="When launched at login, start hidden in the system tray instead of opening the window. Has no effect when launching manually."
+      >
+        <Toggle value={launchMinimized} onChange={toggleLaunchMinimized} disabled={!autostart} />
       </SettingRow>
     </div>
   );
@@ -695,10 +716,117 @@ function AboutSection() {
   );
 }
 
+/* ─── Secrets section ────────────────────────── */
+
+function SecretsSection() {
+  const { secrets, setSecret, deleteSecret } = useSecretsStore();
+  const [newName,  setNewName]  = useState('');
+  const [newValue, setNewValue] = useState('');
+  const [revealed, setRevealed] = useState<Record<string, boolean>>({});
+  const entries = Object.entries(secrets);
+
+  const handleAdd = useCallback(() => {
+    const name = newName.trim().toUpperCase().replace(/\s+/g, '_');
+    if (!name) return;
+    setSecret(name, newValue);
+    setNewName('');
+    setNewValue('');
+  }, [newName, newValue, setSecret]);
+
+  return (
+    <div style={{ animation: 'fade-up 0.22s ease both' }}>
+      <SectionHead
+        title="Secrets"
+        description="Global key-value store for sensitive values. Reference with ${secret:NAME} in any field. Values are masked in run logs and never included in flow export files."
+      />
+
+      {/* Existing secrets */}
+      {entries.length > 0 && (
+        <div className="rounded-xl border border-wire overflow-hidden mb-6">
+          {entries.map(([name, value], i) => (
+            <div
+              key={name}
+              className={clsx(
+                'flex items-center gap-3 px-4 py-3',
+                i < entries.length - 1 && 'border-b border-wire',
+                'hover:bg-raised/60 transition-colors',
+              )}
+            >
+              <Lock size={11} className="text-ink-ghost shrink-0" />
+              <span className="font-mono text-[12px] text-ink w-36 shrink-0 truncate">{name}</span>
+              <span className="flex-1 font-mono text-[11px] text-ink-dim truncate">
+                {revealed[name] ? value : '••••••••'}
+              </span>
+              <button
+                onClick={() => setRevealed(r => ({ ...r, [name]: !r[name] }))}
+                className="text-ink-ghost hover:text-ink transition-colors"
+              >
+                {revealed[name] ? <EyeOff size={13} /> : <Eye size={13} />}
+              </button>
+              <button
+                onClick={() => deleteSecret(name)}
+                className="text-ink-ghost hover:text-danger transition-colors"
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Add new */}
+      <div className="rounded-xl border border-wire overflow-hidden">
+        <div className="px-4 py-3 border-b border-wire bg-raised/40">
+          <p className="text-[11px] font-mono text-ink-dim uppercase tracking-wider">Add secret</p>
+        </div>
+        <div className="px-4 py-4 flex flex-col gap-3">
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label className="block text-[9.5px] font-mono tracking-[0.12em] uppercase text-ink-dim mb-1.5">Name</label>
+              <input
+                value={newName}
+                onChange={e => setNewName(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, ''))}
+                onKeyDown={e => e.key === 'Enter' && handleAdd()}
+                placeholder="API_TOKEN"
+                spellCheck={false}
+                className="w-full px-2.5 py-2 rounded-md bg-raised border border-wire text-ink text-[12px] font-mono placeholder-ink-ghost focus:outline-none focus:border-wire-lit transition-colors"
+              />
+            </div>
+            <div className="flex-[2]">
+              <label className="block text-[9.5px] font-mono tracking-[0.12em] uppercase text-ink-dim mb-1.5">Value</label>
+              <input
+                value={newValue}
+                onChange={e => setNewValue(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleAdd()}
+                type="password"
+                placeholder="secret value"
+                spellCheck={false}
+                className="w-full px-2.5 py-2 rounded-md bg-raised border border-wire text-ink text-[12px] font-mono placeholder-ink-ghost focus:outline-none focus:border-wire-lit transition-colors"
+              />
+            </div>
+          </div>
+          <button
+            onClick={handleAdd}
+            disabled={!newName.trim()}
+            className="self-start flex items-center gap-1.5 px-3 py-2 rounded-lg bg-accent/10 border border-accent/25 text-accent-soft text-[12px] font-medium hover:bg-accent/16 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+          >
+            <Plus size={12} />
+            Add
+          </button>
+        </div>
+      </div>
+
+      <p className="text-[11px] text-ink-ghost font-mono mt-4">
+        Secrets are stored in browser localStorage. They are never included in flow exports.
+      </p>
+    </div>
+  );
+}
+
 /* ─── SettingsPage ────────────────────────────── */
 
-export function SettingsPage() {
-  const [active, setActive] = useState<Category>('workspace');
+export function SettingsPage({ initialSection }: { initialSection?: Category } = {}) {
+  const [active, setActive] = useState<Category>(initialSection ?? 'workspace');
 
   return (
     <div className="h-full flex flex-col dot-grid overflow-hidden">
@@ -759,6 +887,7 @@ export function SettingsPage() {
           {active === 'shell'     && <ShellSection     />}
           {active === 'window'    && <WindowSection    />}
           {active === 'runlog'    && <RunLogSection    />}
+          {active === 'secrets'   && <SecretsSection   />}
           {active === 'about'     && <AboutSection     />}
         </div>
       </div>

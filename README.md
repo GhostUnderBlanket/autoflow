@@ -16,6 +16,13 @@ A lightweight desktop app for building and running visual automation flows — n
 - **Flow runner** — executes nodes in topological order, streams output in a live log panel
 - **Cron scheduler** — Rust-side `tokio-cron-scheduler` fires flows on schedule even when the window is hidden
 - **Arm / disarm** — enable or disable a scheduled flow directly from the home page card
+- **Delay node** — pause a flow for N milliseconds; passes upstream stdout through as-is
+- **Sub-flow node** — run another flow as an inline step; upstream stdout becomes `${var:INPUT}` in the sub-flow
+- **Watch trigger** — fire on file or directory change (create/modify); changed path available as `${prev}`
+- **Webhook trigger** — listen on a local HTTP port; fire on POST; request body available as `${prev}`
+- **Start minimized** — optional autostart-to-tray mode in Settings → Window & Tray
+- **Secret store** — global key-value secrets referenced with `${secret:NAME}` in any field; masked in run logs; managed in Settings → Secrets
+- **Group collapse** — fold a node group to a compact chip to reduce canvas clutter
 - **Run health** — weather icon on each card shows success rate of the last 5 runs
 - **In-app toasts** — completion notifications for all run types with one-click log navigation
 - **System tray** — minimize to tray, OS desktop notifications for background runs
@@ -51,7 +58,7 @@ npm run tauri build    # production build + installer
 
 | Node | Purpose |
 |---|---|
-| **Trigger** | Starts the flow — manually or on a cron schedule (one per flow) |
+| **Trigger** | Starts the flow — manually, on a cron schedule, on a file/directory change (watch), or via a local HTTP POST (webhook); one per flow |
 | **REST API** | HTTP request with form-row or raw-JSON body; per-node URL and token override |
 | **Script** | Inline cmd / PowerShell / bash script |
 | **Condition** | Branches flow on a condition; true/false edges route downstream nodes |
@@ -60,6 +67,8 @@ npm run tauri build    # production build + installer
 | **Open URL** | Opens a URL in the default browser or a path with the default system app |
 | **Launch App** | Launches an executable with optional arguments; fire-and-forget (default) or wait-for-exit to capture stdout and exit code downstream |
 | **Group** | Visual container — select 2+ nodes and click Group; drag the container to move children together; resize with corner handles |
+| **Delay** | Pauses the flow for N milliseconds; accepts `${var:NAME}`; passes upstream stdout through unchanged |
+| **Sub-flow** | Runs another flow inline; upstream stdout available as `${var:INPUT}`; leaf output becomes this node's stdout |
 
 ## Canvas Controls
 
@@ -83,6 +92,7 @@ npm run tauri build    # production build + installer
 | `${var:NAME}` | flow-level variable |
 | `${loop.item}` | current forEach loop item |
 | `${loop.item.field}` | JSON field extracted from the current forEach loop item |
+| `${secret:NAME}` | app-level secret (from Settings → Secrets; masked in logs) |
 
 ## License
 

@@ -8,6 +8,7 @@ import type { AppSettings } from '../types/settings';
 import type { LogEntry } from '../types/flow';
 import { interpolate, type NodeRunResult } from './interpolate';
 import { useWorkspaceStore } from '../store/workspaceStore';
+import { useFlowStore } from '../store/flowStore';
 
 export interface BodyRow { key: string; value: string }
 
@@ -239,6 +240,8 @@ function execNode(
   results: Map<string, NodeRunResult>,
   parents: string[],
   variables: Record<string, string>,
+  secrets: Record<string, string>,
+  callStack?: ReadonlySet<string>,
   loopItem?: string,
 ): SpawnHandle | null {
   const d    = node.data as Record<string, unknown>;
@@ -246,7 +249,7 @@ function execNode(
 
   if (type === 'trigger' || type === 'condition' || type === 'loop') return null;
 
-  const ctx = { results, parents, variables, loopItem };
+  const ctx = { results, parents, variables, secrets, loopItem };
   const interp = (s: string) => interpolate(s, ctx);
 
   const workspacePath = useWorkspaceStore.getState().path ?? '';
@@ -269,6 +272,16 @@ function execNode(
     return launchAppNode(d, settings, interp, onLog, id, cwd);
   }
 
+  if (type === 'delay') {
+    const upstream = parents.map(pid => results.get(pid)?.stdout?.trim() ?? '').filter(Boolean).join('\n');
+    return delayNode(d, interp, onLog, upstream);
+  }
+
+  if (type === 'subflow') {
+    const upstream = parents.map(pid => results.get(pid)?.stdout?.trim() ?? '').filter(Boolean).join('\n');
+    return subflowNode(d, settings, variables, secrets, onLog, upstream, callStack);
+  }
+
   // Script node
   const shell  = (d.shell as string) || settings.defaultShell;
   const script = interp((d.script as string) ?? '');
@@ -289,7 +302,9 @@ function fileNode(
   onLog: AddLog,
 ): SpawnHandle {
   const op      = (d.operation as string) || 'read';
-  const path    = interp((d.path as string) ?? '').trim();
+  // Strip surrounding quotes — they appear when RefField inserts in "text" mode
+  // e.g. "${var:PATH}" interpolates to "C:\...\file.txt" which the OS rejects.
+  const path    = interp((d.path as string) ?? '').trim().replace(/^(["'])(.*)\1$/, '$2');
   const content = interp((d.content as string) ?? '');
 
   const result = (async (): Promise<{ exitCode: number | null; stdout: string }> => {
@@ -372,7 +387,7 @@ function launchAppNode(
   id: string,
   cwd: string | undefined,
 ): SpawnHandle {
-  const program     = interp((d.program as string) ?? '').trim();
+  const program     = interp((d.program as string) ?? '').trim().replace(/^(["'])(.*)\1$/, '$2');
   const argsRaw     = interp((d.args as string) ?? '').trim();
   const waitForExit = !!(d.waitForExit as boolean);
 
@@ -420,13 +435,114 @@ function launchAppNode(
   return { result, kill: async () => {} };
 }
 
+/* ─── Delay node ────────────────────────────────────────────── */
+
+function delayNode(
+  d: Record<string, unknown>,
+  interp: (s: string) => string,
+  onLog: AddLog,
+  upstream: string,
+): SpawnHandle {
+  const rawMs = interp(String(d.ms ?? '1000'));
+  const ms    = Math.max(0, Math.round(Number(rawMs) || 0));
+
+  let killFn: (() => void) | null = null;
+  const result = (async (): Promise<{ exitCode: number | null; stdout: string }> => {
+    const label = ms >= 1000
+      ? `${(ms / 1000).toFixed(ms % 1000 === 0 ? 0 : 1)}s`
+      : `${ms}ms`;
+    onLog(`   sleeping ${label}…`, 'info');
+    const killed = await new Promise<boolean>(resolve => {
+      const timer = setTimeout(() => resolve(false), ms);
+      killFn = () => { clearTimeout(timer); resolve(true); };
+    });
+    if (killed) return { exitCode: 1, stdout: '' };
+    return { exitCode: 0, stdout: upstream };
+  })();
+
+  return { result, kill: async () => { killFn?.(); } };
+}
+
+/* ─── Sub-flow node ──────────────────────────────────────────── */
+
+function subflowNode(
+  d: Record<string, unknown>,
+  settings: AppSettings,
+  _variables: Record<string, string>,
+  secrets: Record<string, string>,
+  onLog: AddLog,
+  upstream: string,
+  callStack?: ReadonlySet<string>,
+): SpawnHandle {
+  const flowId  = ((d.flowId as string) ?? '').trim();
+  const subFlow = useFlowStore.getState().flows.find(f => f.id === flowId);
+
+  if (!subFlow) {
+    onLog(`   ✗ sub-flow not found${flowId ? `: ${flowId}` : ' (none selected)'}`, 'error');
+    return { result: Promise.resolve({ exitCode: 1, stdout: '' }), kill: async () => {} };
+  }
+
+  // Cycle detection: refuse to run if this flow is already in the call stack
+  if (callStack?.has(flowId)) {
+    onLog(`   ✗ sub-flow cycle detected — "${subFlow.name}" is already running in this call chain`, 'error');
+    return { result: Promise.resolve({ exitCode: 1, stdout: '' }), kill: async () => {} };
+  }
+
+  // Build the new call stack for the nested run
+  const nestedCallStack = new Set(callStack ?? []);
+  nestedCallStack.add(flowId);
+
+  let stopFn: (() => Promise<void>) | null = null;
+  const capturedResults = new Map<string, { stdout: string; exitCode: number | null }>();
+
+  const result = new Promise<{ exitCode: number | null; stdout: string }>(resolve => {
+    onLog(`   ↪ running sub-flow: ${subFlow.name}`, 'info');
+    // Pass upstream stdout as ${var:INPUT}; sub-flow's own variables take lower priority
+    const subVars = { INPUT: upstream, ...subFlow.variables };
+
+    const handle = runFlow(
+      subFlow.nodes.map(n => ({ ...n, data: { label: n.label, ...n.data } })) as unknown as Node[],
+      subFlow.edges as unknown as Edge[],
+      settings,
+      subVars,
+      secrets,
+      {
+        onLog:        (msg, lvl) => onLog(`     ${msg}`, lvl),
+        onNodeStart:  () => {},
+        onNodeDone:   () => {},
+        onNodeResult: (nodeId, exitCode, stdout) => {
+          capturedResults.set(nodeId, { stdout, exitCode });
+        },
+        onDone: (success) => {
+          // Collect output from leaf nodes (no outgoing edges)
+          const execNodes = subFlow.nodes.filter(n => n.type !== 'group');
+          const leafIds   = execNodes
+            .filter(n => !subFlow.edges.some(e => e.source === n.id))
+            .map(n => n.id);
+          const leafOutput = leafIds
+            .map(id => capturedResults.get(id)?.stdout?.trim() ?? '')
+            .filter(Boolean)
+            .join('\n');
+          resolve({ exitCode: success ? 0 : 1, stdout: leafOutput });
+        },
+      },
+      nestedCallStack,   // propagate cycle-detection stack into nested run
+    );
+    stopFn = handle.stop;
+  });
+
+  return { result, kill: async () => { if (stopFn) await stopFn(); } };
+}
+
 /* ─── Public API ────────────────────────────────────────────── */
 
 export interface RunCallbacks {
-  onLog:        AddLog;
-  onNodeStart:  (nodeId: string) => void;
-  onNodeDone:   (nodeId: string, exitCode: number | null) => void;
-  onDone:       (success: boolean) => void;
+  onLog:         AddLog;
+  onNodeStart:   (nodeId: string) => void;
+  onNodeDone:    (nodeId: string, exitCode: number | null) => void;
+  /** Optional — called with both exitCode and stdout after a node finishes. Used by sub-flow executor. */
+  onNodeResult?: (nodeId: string, exitCode: number | null, stdout: string) => void;
+  onDone:        (success: boolean) => void;
 }
 
 export interface RunHandle {
@@ -438,7 +554,12 @@ export function runFlow(
   edges: Edge[],
   settings: AppSettings,
   variables: Record<string, string>,
+  secrets: Record<string, string>,
   cbs: RunCallbacks,
+  /** Internal — tracks which flow ids are in the current call stack to detect cycles. */
+  _callStack?: ReadonlySet<string>,
+  /** Optional stdout to give the trigger node — used to pass webhook body / watch event data downstream. */
+  triggerOutput?: string,
 ): RunHandle {
   const signal = { stopped: false };
   let stopCurrent: (() => Promise<void>) | null = null;
@@ -448,11 +569,21 @@ export function runFlow(
     if (stopCurrent) await stopCurrent();
   };
 
+  // Wrap onLog to mask secret values so they never appear in the run log.
+  const origOnLog = cbs.onLog;
+  const log: AddLog = (msg, level) => {
+    let masked = msg;
+    for (const val of Object.values(secrets)) {
+      if (val && val.length >= 4) masked = masked.split(val).join('***');
+    }
+    origOnLog(masked, level);
+  };
+
   void (async () => {
     // Group nodes are visual containers only — exclude from execution.
     const execNodes = nodes.filter(n => n.type !== 'group');
     const ordered = topSort(execNodes, edges);
-    cbs.onLog(`▶  ${ordered.length} node${ordered.length !== 1 ? 's' : ''} queued`, 'info');
+    log(`▶  ${ordered.length} node${ordered.length !== 1 ? 's' : ''} queued`, 'info');
 
     let flowOk = true;
     const results = new Map<string, NodeRunResult>();
@@ -494,20 +625,20 @@ export function runFlow(
 
       if (shouldSkip(node.id)) {
         skipped.add(node.id);
-        cbs.onLog(`○  [${type}] ${label} — skipped`, 'info');
+        log(`○  [${type}] ${label} — skipped`, 'info');
         results.set(node.id, { id: node.id, label, stdout: '', exitCode: null });
         cbs.onNodeDone(node.id, null);
         continue;
       }
 
-      cbs.onLog(`→  [${type}] ${label}`, 'info');
+      log(`→  [${type}] ${label}`, 'info');
       cbs.onNodeStart(node.id);
 
       // Condition: evaluate now, decide branch, log, then fall through with no subprocess.
       if (type === 'condition') {
         const branch = evalCondition(node, results, parents) ? 'true' : 'false';
         liveBranches.set(node.id, branch);
-        cbs.onLog(`   ↳ ${branch === 'true' ? '✓ true branch' : '✗ false branch'}`, branch === 'true' ? 'success' : 'warn');
+        log(`   ↳ ${branch === 'true' ? '✓ true branch' : '✗ false branch'}`, branch === 'true' ? 'success' : 'warn');
         const condUpstream = parents.map(pid => results.get(pid)?.stdout?.trim() ?? '').filter(Boolean).join('\n');
         results.set(node.id, { id: node.id, label, stdout: condUpstream, exitCode: 0 });
         cbs.onNodeDone(node.id, 0);
@@ -526,7 +657,7 @@ export function runFlow(
         const bodyNode = bodyEdge ? nodes.find(n => n.id === bodyEdge.target) : undefined;
 
         if (!bodyNode) {
-          cbs.onLog('   ⚠ no node connected — nothing to loop', 'warn');
+          log('   ⚠ no node connected — nothing to loop', 'warn');
           results.set(node.id, { id: node.id, label, stdout: '', exitCode: 0 });
           cbs.onNodeDone(node.id, 0);
           continue;
@@ -537,9 +668,9 @@ export function runFlow(
         loopManaged.add(bodyNode.id);
 
         const execBody = async (loopItem?: string) => {
-          cbs.onLog(`   → [${bodyNode.type}] ${bodyLabel}`, 'info');
+          log(`   → [${bodyNode.type}] ${bodyLabel}`, 'info');
           cbs.onNodeStart(bodyNode.id);
-          const h = execNode(bodyNode, settings, cbs.onLog, results, [node.id], variables, loopItem);
+          const h = execNode(bodyNode, settings, log, results, [node.id], variables, secrets, _callStack, loopItem);
           if (!h) {
             results.set(bodyNode.id, { id: bodyNode.id, label: bodyLabel, stdout: '', exitCode: 0 });
             cbs.onNodeDone(bodyNode.id, 0);
@@ -550,8 +681,9 @@ export function runFlow(
           stopCurrent = null;
           results.set(bodyNode.id, { id: bodyNode.id, label: bodyLabel, stdout: r.stdout, exitCode: r.exitCode });
           cbs.onNodeDone(bodyNode.id, r.exitCode);
+          cbs.onNodeResult?.(bodyNode.id, r.exitCode, r.stdout);
           const ok = r.exitCode === 0 || r.exitCode === null;
-          cbs.onLog(ok ? `   ✓ exit ${r.exitCode ?? 'ok'}` : `   ✗ exit ${r.exitCode}`, ok ? 'success' : 'error');
+          log(ok ? `   ✓ exit ${r.exitCode ?? 'ok'}` : `   ✗ exit ${r.exitCode}`, ok ? 'success' : 'error');
           return r;
         };
 
@@ -561,25 +693,25 @@ export function runFlow(
         if (loopMode === 'repeat') {
           for (let i = 0; i < loopCount; i++) {
             if (signal.stopped) break;
-            cbs.onLog(`   iteration ${i + 1}/${loopCount}`, 'info');
+            log(`   iteration ${i + 1}/${loopCount}`, 'info');
             const r = await execBody();
             if (r.stdout.trim()) outputs.push(r.stdout.trim());
             if (r.exitCode !== 0 && settings.stopOnError) { loopOk = false; break; }
             if (loopDelay > 0 && i < loopCount - 1 && !signal.stopped) {
-              cbs.onLog(`   waiting ${loopDelay}ms…`, 'info');
+              log(`   waiting ${loopDelay}ms…`, 'info');
               await sleep(loopDelay);
             }
           }
         } else if (loopMode === 'retry') {
           for (let attempt = 0; attempt < loopCount; attempt++) {
             if (signal.stopped) break;
-            if (attempt > 0) cbs.onLog(`   retry attempt ${attempt + 1}/${loopCount}`, 'warn');
+            if (attempt > 0) log(`   retry attempt ${attempt + 1}/${loopCount}`, 'warn');
             const r = await execBody();
             if (r.stdout.trim()) outputs.push(r.stdout.trim());
             if (r.exitCode === 0) break;
-            if (attempt === loopCount - 1) { loopOk = false; cbs.onLog(`   all ${loopCount} attempts failed`, 'error'); break; }
+            if (attempt === loopCount - 1) { loopOk = false; log(`   all ${loopCount} attempts failed`, 'error'); break; }
             if (loopDelay > 0 && !signal.stopped) {
-              cbs.onLog(`   waiting ${loopDelay}ms before retry…`, 'info');
+              log(`   waiting ${loopDelay}ms before retry…`, 'info');
               await sleep(loopDelay);
             }
           }
@@ -594,16 +726,16 @@ export function runFlow(
           } else {
             items = upstream.split('\n').filter(l => l.trim());
           }
-          cbs.onLog(`   ${items.length} item(s) to process`, 'info');
+          log(`   ${items.length} item(s) to process`, 'info');
           for (let i = 0; i < items.length; i++) {
             if (signal.stopped) break;
             const item    = items[i];
             const preview = item.length > 50 ? `${item.slice(0, 50)}…` : item;
-            cbs.onLog(`   [${i + 1}/${items.length}] ${preview}`, 'info');
+            log(`   [${i + 1}/${items.length}] ${preview}`, 'info');
             const r = await execBody(item);
             if (r.stdout.trim()) outputs.push(r.stdout.trim());
             if (loopDelay > 0 && i < items.length - 1 && !signal.stopped) {
-              cbs.onLog(`   waiting ${loopDelay}ms…`, 'info');
+              log(`   waiting ${loopDelay}ms…`, 'info');
               await sleep(loopDelay);
             }
           }
@@ -613,17 +745,21 @@ export function runFlow(
         const loopExit   = loopOk ? 0 : 1;
         results.set(node.id, { id: node.id, label, stdout: loopStdout, exitCode: loopExit });
         cbs.onNodeDone(node.id, loopExit);
-        cbs.onLog(loopOk ? `   ✓ loop complete` : `   ✗ loop failed`, loopOk ? 'success' : 'error');
+        log(loopOk ? `   ✓ loop complete` : `   ✗ loop failed`, loopOk ? 'success' : 'error');
         if (!loopOk && settings.stopOnError) { flowOk = false; break; }
         continue;
       }
 
-      const handle = execNode(node, settings, cbs.onLog, results, parents, variables);
+      const handle = execNode(node, settings, log, results, parents, variables, secrets, _callStack);
 
       if (!handle) {
-        if (type === 'trigger') cbs.onLog('   fired', 'info');
-        results.set(node.id, { id: node.id, label, stdout: '', exitCode: 0 });
+        // Trigger nodes have no subprocess — use triggerOutput (e.g. webhook body) as their stdout
+        // so downstream nodes can access it via ${prev}.
+        const tStdout = type === 'trigger' ? (triggerOutput ?? '') : '';
+        if (type === 'trigger') log(tStdout ? `   fired (body: ${tStdout.slice(0, 80)}${tStdout.length > 80 ? '…' : ''})` : '   fired', 'info');
+        results.set(node.id, { id: node.id, label, stdout: tStdout, exitCode: 0 });
         cbs.onNodeDone(node.id, 0);
+        cbs.onNodeResult?.(node.id, 0, tStdout);
         continue;
       }
 
@@ -632,18 +768,19 @@ export function runFlow(
       stopCurrent = null;
       results.set(node.id, { id: node.id, label, stdout, exitCode });
       cbs.onNodeDone(node.id, exitCode);
+      cbs.onNodeResult?.(node.id, exitCode, stdout);
 
       if (signal.stopped) break;
 
       const ok = exitCode === 0 || exitCode === null;
-      cbs.onLog(ok ? `   ✓ exit ${exitCode ?? 'ok'}` : `   ✗ exit ${exitCode}`, ok ? 'success' : 'error');
+      log(ok ? `   ✓ exit ${exitCode ?? 'ok'}` : `   ✗ exit ${exitCode}`, ok ? 'success' : 'error');
 
       if (!ok && settings.stopOnError) { flowOk = false; break; }
     }
 
-    if (signal.stopped)  { cbs.onLog('■  Stopped', 'warn');         cbs.onDone(false); }
-    else if (flowOk)     { cbs.onLog('✓  Flow complete', 'success'); cbs.onDone(true);  }
-    else                 { cbs.onLog('✗  Flow failed', 'error');     cbs.onDone(false); }
+    if (signal.stopped)  { log('■  Stopped', 'warn');         cbs.onDone(false); }
+    else if (flowOk)     { log('✓  Flow complete', 'success'); cbs.onDone(true);  }
+    else                 { log('✗  Flow failed', 'error');     cbs.onDone(false); }
   })();
 
   return { stop };

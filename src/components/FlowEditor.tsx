@@ -21,12 +21,15 @@ import {
   Timer, Globe, Terminal, GitBranch, ChevronDown,
   ZoomIn, ZoomOut, Maximize2, FolderOpen, ExternalLink, Repeat2,
   FileText, Braces, AppWindow, Magnet, Group, Ungroup,
+  Hourglass, Workflow,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useFlowStore } from '../store/flowStore';
 import { useSettingsStore } from '../store/settingsStore';
+import { useSecretsStore } from '../store/secretsStore';
 import { useRunLogStore } from '../store/runLogStore';
 import { runFlow, type RunHandle } from '../lib/executor';
+import { registerEditorCallback } from '../lib/backgroundRunner';
 import { nodeTypes } from './nodes';
 import { NodePanel } from './NodePanel';
 import { LogPanel } from './LogPanel';
@@ -158,6 +161,8 @@ const ADD_ITEMS = [
   { type: 'rest'      as NodeKind, icon: <Globe size={13} />,       label: 'REST API',  color: '#ec4899', defaults: { method: 'POST', endpoint: '', bodyMode: 'form', bodyRows: [] }  },
   { type: 'openurl'   as NodeKind, icon: <ExternalLink size={13} />,label: 'Open URL',  color: '#a78bfa', defaults: { url: '' }                                                       },
   { type: 'launchapp' as NodeKind, icon: <AppWindow size={13} />,  label: 'Launch App',color: '#f43f5e', defaults: { program: '', args: '', waitForExit: false }                      },
+  { type: 'delay'     as NodeKind, icon: <Hourglass size={13} />,  label: 'Delay',     color: '#14b8a6', defaults: { ms: 1000 }                                                        },
+  { type: 'subflow'   as NodeKind, icon: <Workflow size={13} />,   label: 'Sub-flow',  color: '#818cf8', defaults: { flowId: '', flowName: '' }                                        },
 ];
 
 function mkLog(message: string, level: LogEntry['level'] = 'info'): LogEntry {
@@ -634,6 +639,20 @@ export function FlowEditor() {
   const { settings } = useSettingsStore();
   const { start: startSession, append: appendSession, finish: finishSession } = useRunLogStore();
 
+  // Register this editor instance so background triggers (cron/watch/webhook)
+  // can route runs here for live log + node ring feedback.
+  // Use a ref so the callback always calls the latest handleRun/isRunning values
+  // without re-registering on every render.
+  const editorRunRef = useRef<(triggerOutput?: string) => void>(() => {});
+  editorRunRef.current = (triggerOutput?: string) => {
+    if (!isRunning) handleRun(triggerOutput);
+  };
+  useEffect(() => {
+    if (!flow) return;
+    return registerEditorCallback(flow.id, (to) => editorRunRef.current(to));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flow?.id]);
+
   // On mount: if a run is in progress, attach to it; otherwise hydrate from
   // the most recent completed session so logs survive navigation away and back.
   useEffect(() => {
@@ -846,7 +865,7 @@ export function FlowEditor() {
     if (sessionIdRef.current) appendSession(sessionIdRef.current, message, level);
   }
 
-  function handleRun() {
+  function handleRun(triggerOutput?: string) {
     if (!flow || nodes.length === 0) return;
     setIsRunning(true);
     setLogOpen(true);
@@ -858,7 +877,8 @@ export function FlowEditor() {
     const vars = Object.fromEntries(
       variables.filter(v => v.key.trim()).map(v => [v.key.trim(), v.value])
     );
-    const handle = runFlow(nodes, edges, settings, vars, {
+    const secrets = useSecretsStore.getState().secrets;
+    const handle = runFlow(nodes, edges, settings, vars, secrets, {
       onLog: (msg, lvl = 'info') => addLog(msg, lvl),
       onNodeStart: id => setNodeStatuses(p => new Map(p).set(id, 'running')),
       onNodeDone:  (id, code) => setNodeStatuses(p => new Map(p).set(id, code === 0 || code === null ? 'success' : 'error')),
@@ -868,7 +888,7 @@ export function FlowEditor() {
         setIsRunning(false);
         runHandleRef.current = null;
       },
-    });
+    }, undefined, triggerOutput);
     runHandleRef.current = handle;
   }
 
@@ -942,6 +962,7 @@ export function FlowEditor() {
               node={selectedNode} nodes={nodes} edges={edges}
               onUpdate={updateNodeData} onClose={() => setSelectedId(null)}
               flowVariables={Object.fromEntries(variables.filter(v => v.key.trim()).map(v => [v.key.trim(), v.value]))}
+              flowId={flow?.id}
             />
           : rightPanel === 'vars'
             ? <FlowVarsPanel

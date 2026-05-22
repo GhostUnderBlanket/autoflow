@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
-import { X, Timer, Globe, Terminal, GitBranch, Plus, Minus, Check, AlertTriangle, Play, Loader2, FolderOpen, ExternalLink, Repeat2, AppWindow } from 'lucide-react';
+import { useMemo, useState, useCallback } from 'react';
+import { X, Timer, Globe, Terminal, GitBranch, Plus, Minus, Check, AlertTriangle, Play, Loader2, FolderOpen, ExternalLink, Repeat2, AppWindow, Hourglass, Workflow, Send } from 'lucide-react';
+import { useFlowStore } from '../store/flowStore';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import { useSettingsStore } from '../store/settingsStore';
 import { interpolate } from '../lib/interpolate';
@@ -20,6 +21,8 @@ interface NodePanelProps {
   onUpdate:       (id: string, data: Record<string, unknown>) => void;
   onClose:        () => void;
   flowVariables?: Record<string, string>;
+  /** The id of the flow being edited — used to prevent sub-flow self-reference. */
+  flowId?:        string;
 }
 
 const CFG = {
@@ -31,6 +34,8 @@ const CFG = {
   rest:      { color: '#ec4899', icon: <Globe size={13} />,        label: 'REST API'  },
   openurl:   { color: '#a78bfa', icon: <ExternalLink size={13} />, label: 'Open URL'   },
   launchapp: { color: '#f43f5e', icon: <AppWindow size={13} />,   label: 'Launch App' },
+  delay:     { color: '#14b8a6', icon: <Hourglass size={13} />,   label: 'Delay'      },
+  subflow:   { color: '#818cf8', icon: <Workflow size={13} />,     label: 'Sub-flow'   },
 } as const;
 
 /* ─── Sub-components ─────────────────────────── */
@@ -876,9 +881,87 @@ function LaunchAppFields({
   );
 }
 
+/* ─── Webhook test button ────────────────────── */
+
+function WebhookTestButton({ port, path }: { port: number; path: string }) {
+  const [state, setState] = useState<'idle' | 'sending' | 'ok' | 'error'>('idle');
+
+  const send = useCallback(async () => {
+    setState('sending');
+    try {
+      const url = `http://127.0.0.1:${port}${path}`;
+      const res = await fetch(url, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ test: true, source: 'Autoflow panel' }),
+      });
+      setState(res.ok ? 'ok' : 'error');
+    } catch {
+      setState('error');
+    }
+    setTimeout(() => setState('idle'), 3000);
+  }, [port, path]);
+
+  return (
+    <button
+      onClick={send}
+      disabled={state === 'sending'}
+      className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border text-[12px] font-medium
+                  w-full justify-center transition-all disabled:opacity-50
+                  ${state === 'ok'    ? 'border-success/40 text-success bg-success/[.06]' :
+                    state === 'error'  ? 'border-danger/40  text-danger  bg-danger/[.06]'  :
+                    'border-wire text-ink-dim hover:text-ink hover:border-wire-lit hover:bg-raised/60'}`}
+    >
+      {state === 'sending' ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />}
+      {state === 'ok'    ? 'Delivered ✓' :
+       state === 'error' ? 'Failed — is trigger armed?' :
+       'Send test POST'}
+    </button>
+  );
+}
+
+/* ─── Sub-flow fields ────────────────────────── */
+
+function SubflowFields({
+  data, nodeId, onUpdate, currentFlowId,
+}: {
+  data: Record<string, unknown>;
+  nodeId: string;
+  onUpdate: (id: string, d: Record<string, unknown>) => void;
+  currentFlowId?: string;
+}) {
+  const flows = useFlowStore(s => s.flows);
+  // Never show the flow that contains this node — selecting it would cause an infinite loop
+  const options = flows.filter(f => f.id !== currentFlowId);
+  return (
+    <>
+      <div>
+        <FieldLabel>Flow to run</FieldLabel>
+        <Select
+          value={(data.flowId as string) ?? ''}
+          options={[
+            { value: '', label: '— select a flow —' },
+            ...options.map(f => ({ value: f.id, label: f.name })),
+          ]}
+          onChange={v => {
+            const f = flows.find(fl => fl.id === v);
+            // Single call so neither field overwrites the other
+            onUpdate(nodeId, { ...data, flowId: v, flowName: f?.name ?? '' });
+          }}
+        />
+      </div>
+      <p className="text-[10px] text-ink-ghost leading-relaxed">
+        Upstream stdout is passed as{' '}
+        <span className="font-mono text-ink-dim">{'${var:INPUT}'}</span> inside the sub-flow.
+        The sub-flow's leaf node output becomes this node's stdout.
+      </p>
+    </>
+  );
+}
+
 /* ─── NodePanel ──────────────────────────────── */
 
-export function NodePanel({ node, nodes, edges, onUpdate, onClose, flowVariables }: NodePanelProps) {
+export function NodePanel({ node, nodes, edges, onUpdate, onClose, flowVariables, flowId }: NodePanelProps) {
   if (!node) return null;
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   const safeNode = node!;
@@ -934,8 +1017,8 @@ export function NodePanel({ node, nodes, edges, onUpdate, onClose, flowVariables
             <div>
               <FieldLabel>Mode</FieldLabel>
               <ToggleGroup
-                value={(data.mode as 'manual' | 'cron') ?? 'manual'}
-                options={['manual', 'cron']}
+                value={(data.mode as 'manual' | 'cron' | 'watch' | 'webhook') ?? 'manual'}
+                options={['manual', 'cron', 'watch', 'webhook']}
                 onChange={v => set('mode', v)}
               />
             </div>
@@ -969,6 +1052,76 @@ export function NodePanel({ node, nodes, edges, onUpdate, onClose, flowVariables
                 </div>
               </>
             )}
+            {data.mode === 'watch' && (
+              <>
+                <div>
+                  <FieldLabel>File or Directory Path</FieldLabel>
+                  <TextInput
+                    value={(data.watchPath as string) ?? ''}
+                    onChange={v => set('watchPath', v)}
+                    placeholder="C:\path\to\watch"
+                    mono
+                  />
+                  <p className="text-[10px] text-ink-ghost mt-1.5 leading-relaxed">
+                    Fires on <strong>create</strong> or <strong>modify</strong>. The changed file path is available as <span className="font-mono text-ink-dim">{'${prev}'}</span> in the first downstream node. The file must exist when the flow reads it — deletions are ignored.
+                  </p>
+                </div>
+                <div>
+                  <FieldLabel>Armed</FieldLabel>
+                  <ToggleGroup
+                    value={(data.enabled === false ? 'off' : 'on') as 'on' | 'off'}
+                    options={['on', 'off']}
+                    onChange={v => set('enabled', v === 'on')}
+                  />
+                </div>
+              </>
+            )}
+            {data.mode === 'webhook' && (
+              <>
+                <div>
+                  <FieldLabel>Port</FieldLabel>
+                  <TextInput
+                    value={String(data.port ?? 3000)}
+                    onChange={v => set('port', Number(v) || 3000)}
+                    placeholder="3000"
+                    mono
+                  />
+                  <p className="text-[10px] text-ink-ghost mt-1.5 leading-relaxed">
+                    Listens on <span className="font-mono">127.0.0.1:{String(data.port ?? 3000)}</span> (localhost only).
+                  </p>
+                </div>
+                <div>
+                  <FieldLabel>Path</FieldLabel>
+                  <TextInput
+                    value={(data.webhookPath as string) ?? '/'}
+                    onChange={v => set('webhookPath', v)}
+                    placeholder="/"
+                    mono
+                  />
+                </div>
+                <div>
+                  <FieldLabel>Armed</FieldLabel>
+                  <ToggleGroup
+                    value={(data.enabled === false ? 'off' : 'on') as 'on' | 'off'}
+                    options={['on', 'off']}
+                    onChange={v => set('enabled', v === 'on')}
+                  />
+                </div>
+                <div className="rounded-lg bg-raised border border-wire px-3 py-2.5">
+                  <p className="text-[11px] text-ink-dim font-mono">
+                    POST to <span className="text-ink">http://127.0.0.1:{String(data.port ?? 3000)}{String((data.webhookPath as string) ?? '/')}</span>
+                  </p>
+                  <p className="text-[10px] text-ink-ghost mt-1">
+                    The request body is available as <span className="font-mono text-ink-dim">${'{'}prev{'}'}</span> in the first downstream node.
+                  </p>
+                </div>
+                <WebhookTestButton
+                  port={Number(data.port ?? 3000)}
+                  path={((data.webhookPath as string) ?? '/').trim() || '/'}
+                />
+              </>
+            )}
+
           </>
         )}
 
@@ -1036,6 +1189,29 @@ export function NodePanel({ node, nodes, edges, onUpdate, onClose, flowVariables
         {/* ── Launch App ────────────────────── */}
         {type === 'launchapp' && (
           <LaunchAppFields data={data} upstream={upstream} set={set} flowVariables={flowVariables} />
+        )}
+
+        {/* ── Delay ─────────────────────────── */}
+        {type === 'delay' && (
+          <div>
+            <FieldLabel>Duration (ms)</FieldLabel>
+            <RefField
+              value={String(data.ms ?? 1000)}
+              onChange={v => set('ms', v)}
+              placeholder="1000"
+              upstream={upstream}
+              flowVariables={flowVariables}
+            />
+            <p className="text-[10px] text-ink-ghost mt-1.5 leading-relaxed">
+              Milliseconds to pause. Accepts <span className="font-mono text-ink-dim">${'{'}var:NAME{'}'}</span> — e.g. set <span className="font-mono text-ink-dim">DELAY=5000</span> for 5 s.
+              Passes upstream stdout through unchanged.
+            </p>
+          </div>
+        )}
+
+        {/* ── Sub-flow ──────────────────────── */}
+        {type === 'subflow' && (
+          <SubflowFields data={data} nodeId={safeNode.id} onUpdate={onUpdate} currentFlowId={flowId} />
         )}
 
       </div>

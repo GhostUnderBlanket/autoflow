@@ -7,6 +7,8 @@ import { OpenUrlNode }    from './OpenUrlNode';
 import { LoopNode }       from './LoopNode';
 import { LaunchAppNode }  from './LaunchAppNode';
 import { GroupNode }      from './GroupNode';
+import { DelayNode }      from './DelayNode';
+import { SubflowNode }    from './SubflowNode';
 
 export const nodeTypes = {
   trigger:   TriggerNode,
@@ -18,4 +20,6 @@ export const nodeTypes = {
   loop:      LoopNode,
   launchapp: LaunchAppNode,
   group:     GroupNode,
+  delay:     DelayNode,
+  subflow:   SubflowNode,
 } as const;

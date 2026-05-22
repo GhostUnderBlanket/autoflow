@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronRight, Link2, AlertTriangle, Braces } from 'lucide-react';
+import { ChevronRight, Link2, AlertTriangle, Braces, Lock } from 'lucide-react';
 import { clsx } from 'clsx';
 import type { UpstreamRef } from '../../lib/graphRefs';
 import { resolveRefs } from '../../lib/graphRefs';
+import { useSecretsStore } from '../../store/secretsStore';
 
 interface RefFieldProps {
   value:          string;
@@ -26,8 +27,10 @@ export function RefField({
   const [open, setOpen] = useState(false);
   const [pos, setPos]   = useState<{ top: number; left: number; maxHeight: number } | null>(null);
 
-  const varEntries  = Object.entries(flowVariables ?? {});
-  const hasContent  = upstream.length > 0 || varEntries.length > 0;
+  const secrets     = useSecretsStore(s => s.secrets);
+  const varEntries    = Object.entries(flowVariables ?? {});
+  const secretEntries = Object.entries(secrets);
+  const hasContent    = upstream.length > 0 || varEntries.length > 0 || secretEntries.length > 0;
 
   useLayoutEffect(() => {
     if (!open || !btnRef.current) return;
@@ -38,13 +41,18 @@ export function RefField({
     const winH       = window.innerHeight;
     const spaceBelow = winH - r.bottom - margin;
     const spaceAbove = r.top - margin;
-    const preferred  = Math.min(420, 74 + upstream.length * 58 + (varEntries.length > 0 ? 28 + varEntries.length * 38 : 0));
+    const preferred  = Math.min(480,
+      74 +
+      upstream.length * 58 +
+      (varEntries.length    > 0 ? 28 + varEntries.length    * 38 : 0) +
+      (secretEntries.length > 0 ? 28 + secretEntries.length * 38 : 0),
+    );
     const flipUp     = spaceBelow < preferred && spaceAbove > spaceBelow;
     const maxHeight  = Math.max(160, Math.min(preferred, flipUp ? spaceAbove : spaceBelow));
     const left       = Math.min(Math.max(margin, r.left), winW - W - margin);
     const top        = flipUp ? r.top - maxHeight - 6 : r.bottom + 6;
     setPos({ top, left, maxHeight });
-  }, [open, upstream.length, varEntries.length]);
+  }, [open, upstream.length, varEntries.length, secretEntries.length]);
 
   useEffect(() => {
     if (!open) return;
@@ -170,6 +178,25 @@ export function RefField({
                   </span>
                 );
               }
+              if (r.inner.startsWith('secret:')) {
+                const name   = r.inner.slice(7).trim();
+                const exists = name in secrets;
+                return (
+                  <span
+                    key={`${r.raw}-${i}`}
+                    title={exists ? `${r.raw} → *** (secret)` : `${r.raw} → secret not found`}
+                    className={clsx(
+                      'inline-flex items-center gap-1 px-1.5 py-[1px] rounded text-[10px] font-mono border',
+                      exists
+                        ? 'bg-success/[.10] text-success border-success/30'
+                        : 'bg-danger/[.10] text-danger border-danger/30',
+                    )}
+                  >
+                    {exists ? <Lock size={9} /> : <AlertTriangle size={9} />}
+                    <span className="max-w-[120px] truncate">{name}</span>
+                  </span>
+                );
+              }
               return <ResolvedChip key={`${r.raw}-${i}`} ref_={r} />;
             })}
           </div>
@@ -253,9 +280,46 @@ export function RefField({
               </>
             )}
 
+            {/* Secrets */}
+            {secretEntries.length > 0 && (
+              <>
+                {(upstream.length > 0 || varEntries.length > 0) && <div className="h-px bg-wire mx-2 my-1" />}
+                <div className="px-3 py-1.5">
+                  <span className="text-[9.5px] font-mono tracking-[0.12em] uppercase text-ink-ghost">
+                    Secrets
+                  </span>
+                </div>
+                {secretEntries.map(([k], i) => (
+                  <div
+                    key={k}
+                    className="group px-3 py-2 hover:bg-raised/60 transition-colors"
+                    style={{ animation: `fade-up 0.18s ${i * 25}ms ease both` }}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <Lock size={10} className="text-ink-ghost shrink-0" />
+                      <span className="text-[12px] font-mono text-ink font-medium truncate">{k}</span>
+                      <span className="text-[10px] text-ink-ghost font-mono ml-auto">••••</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => insertAtCursor(`\${secret:${k}}`)}
+                        className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10.5px] font-mono
+                                   bg-accent/[.08] hover:bg-accent/[.18] text-accent-soft border border-accent/25 transition-colors"
+                        title="Insert secret reference — masked to *** in run logs"
+                      >
+                        <ChevronRight size={9} />
+                        secret
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
+
             {!hasContent && (
               <p className="px-3 py-3 text-[11px] text-ink-ghost italic">
-                No upstream nodes or variables.
+                No upstream nodes, variables, or secrets.
               </p>
             )}
           </div>

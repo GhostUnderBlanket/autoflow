@@ -1,8 +1,28 @@
 import { runFlow } from './executor';
 import { useFlowStore } from '../store/flowStore';
 import { useSettingsStore } from '../store/settingsStore';
+import { useSecretsStore } from '../store/secretsStore';
 import { useRunLogStore } from '../store/runLogStore';
 import { useToastStore } from '../store/toastStore';
+
+/**
+ * When a flow is currently open in the FlowEditor, it registers a callback here
+ * so background triggers (cron/watch/webhook) route the run through the editor's
+ * own run mechanism — giving live log output and node status rings.
+ *
+ * Key: flow id.  Value: callback that starts a visual run.
+ */
+const editorRunCallbacks = new Map<string, (triggerOutput?: string) => void>();
+
+export function registerEditorCallback(
+  flowId: string,
+  cb: (triggerOutput?: string) => void,
+): () => void {
+  editorRunCallbacks.set(flowId, cb);
+  return () => {
+    if (editorRunCallbacks.get(flowId) === cb) editorRunCallbacks.delete(flowId);
+  };
+}
 import type { Node, Edge } from '@xyflow/react';
 import {
   isPermissionGranted, requestPermission, sendNotification,
@@ -45,7 +65,7 @@ async function notify(title: string, body: string): Promise<void> {
  * the home-page Run button). Updates flow.status / flow.lastRun in the store
  * and pipes every line into the global run log.
  */
-export function runFlowInBackground(flowId: string, reason: 'cron' | 'catch-up' | 'manual' = 'cron'): void {
+export function runFlowInBackground(flowId: string, reason: 'cron' | 'catch-up' | 'manual' = 'cron', triggerOutput?: string): void {
   const flow = useFlowStore.getState().flows.find(f => f.id === flowId);
   if (!flow) {
     console.warn(`[bg-runner] flow ${flowId} not found`);
@@ -55,6 +75,15 @@ export function runFlowInBackground(flowId: string, reason: 'cron' | 'catch-up' 
     console.warn(`[bg-runner] flow ${flowId} already running — skipping`);
     return;
   }
+
+  // If the FlowEditor has this flow open it registers a callback above.
+  // Route the run there so the user sees the live log panel and node rings.
+  const editorCb = editorRunCallbacks.get(flowId);
+  if (editorCb) {
+    editorCb(triggerOutput);
+    return;
+  }
+
   const settings = useSettingsStore.getState().settings;
   const { updateFlow } = useFlowStore.getState();
 
@@ -72,11 +101,13 @@ export function runFlowInBackground(flowId: string, reason: 'cron' | 'catch-up' 
   const sessionId = start(flowId, flow.name, reason);
   const startedAt = Date.now();
 
+  const secrets = useSecretsStore.getState().secrets;
   runFlow(
     flow.nodes.map(n => ({ ...n, data: { label: n.label, ...n.data } })) as unknown as Node[],
     flow.edges as unknown as Edge[],
     settings,
     flow.variables ?? {},
+    secrets,
     {
       onLog:       (msg, lvl = 'info') => append(sessionId, msg, lvl),
       onNodeStart: () => {},
@@ -99,5 +130,7 @@ export function runFlowInBackground(flowId: string, reason: 'cron' | 'catch-up' 
         }
       },
     },
+    undefined,      // _callStack
+    triggerOutput,  // body / watch event data → becomes trigger node stdout
   );
 }

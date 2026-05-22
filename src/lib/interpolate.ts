@@ -29,6 +29,8 @@ export interface InterpolationContext {
   parents:   string[];
   /** Flow-level variables, resolved with ${var:NAME} syntax. */
   variables?: Record<string, string>;
+  /** App-level secrets, resolved with ${secret:NAME} syntax. Masked in logs. */
+  secrets?: Record<string, string>;
   /** Current forEach loop item, resolved with ${loop.item}. */
   loopItem?: string;
 }
@@ -46,6 +48,12 @@ export function interpolate(text: string, ctx: InterpolationContext): string {
     if (key.startsWith('var:')) {
       const name = key.slice(4).trim();
       return ctx.variables?.[name] ?? raw;
+    }
+
+    // ${secret:NAME} — app-level secrets (global, masked in logs)
+    if (key.startsWith('secret:')) {
+      const name = key.slice(7).trim();
+      return ctx.secrets?.[name] ?? raw;
     }
 
     // ${loop.item} — current forEach item (whole value)

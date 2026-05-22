@@ -5,7 +5,13 @@ A lightweight desktop app for building and running visual automation flows — n
 ## What It Does
 
 - **Visual flow editor**: drag-and-drop node graph to wire up automation steps
-- **Node types**: Trigger (manual / cron), REST API, Script (cmd/PowerShell/bash), Condition, Loop, File, Open URL, Launch App, Group (visual container)
+- **Node types**: Trigger (manual / cron / watch / webhook), REST API, Script (cmd/PowerShell/bash), Condition, Loop, File, Open URL, Launch App, Delay, Sub-flow, Group (visual container)
+- **Delay node**: pauses the flow for N ms; accepts `${var:NAME}`; passes upstream stdout through unchanged
+- **Sub-flow node**: runs another flow inline; upstream stdout passed as `${var:INPUT}`; leaf output becomes stdout
+- **Watch trigger**: Rust `notify` crate watches a file/directory; fires `file-watch-fire` event on **create/modify only** (delete is ignored so downstream File nodes can read safely); changed file path available as `${prev}`
+- **Webhook trigger**: Rust `tokio` TCP listener on a local port; fires `webhook-fire` event; request body available as `${prev}` downstream
+- **Secret store**: global key-value pairs in `secretsStore` (localStorage `autoflow-secrets`); referenced with `${secret:NAME}`; masked to `***` in run logs; never included in flow exports; managed in Settings → Secrets
+- **Group collapse**: click `⌄` in group label (or double-click when collapsed) to fold a group to a 180×32 chip; children are hidden; size restores on expand
 - **Node grouping**: select 2+ nodes → Group button creates a resizable container; children move with the group; `parentId`/`extent: 'parent'`/`style.width/height` stored on FlowNode
 - **Snap to grid**: 20 px grid for node drag and group resize; toggle with `G` key or toolbar magnet button; default ON; persisted in `settingsStore` as `snapEnabled`
 - **Box-select**: drag on empty canvas selects multiple nodes; middle/right-click drag pans
@@ -209,6 +215,26 @@ type LaunchAppNodeData = {
   args?:        string;  // space-separated arguments; supports interpolation
   waitForExit?: boolean; // if true, wait for process to exit and capture stdout/exit code
 };
+
+type DelayNodeData = {
+  label: string;
+  ms:    number;  // milliseconds; accepts ${var:NAME} interpolation
+};
+
+type SubflowNodeData = {
+  label:     string;
+  flowId:    string;  // id of the target flow
+  flowName?: string;  // display name (cosmetic, copied at config time)
+};
+
+// Watch trigger uses TriggerNodeData with mode:'watch':
+//   watchPath?: string  — file or directory; parent dir watched on Windows; surrounding quotes stripped
+//   enabled?:   boolean
+//
+// Webhook trigger uses TriggerNodeData with mode:'webhook':
+//   port?:        number  — localhost port (1–65535)
+//   webhookPath?: string  — URL path to match (default '/')
+//   enabled?:     boolean
 ```
 
 ## Interpolation Reference
@@ -224,10 +250,20 @@ type LaunchAppNodeData = {
 | `${loop.item}` | current forEach loop item (whole value) |
 | `${loop.item.field}` | JSON field extracted from the current forEach loop item |
 | `${env.NAME}` | process environment variable |
+| `${secret:NAME}` | app-level secret (Settings → Secrets); masked to `***` in logs |
 
 ## Key Constraints
 
 - **One trigger per flow** — enforced in the UI; second trigger is disabled in Add Node menu
+- **Delay node** (`type: 'delay'`): single `ms` field (accepts `${var:NAME}`); passes upstream stdout through unchanged; killable mid-sleep; color `#14b8a6`
+- **Sub-flow node** (`type: 'subflow'`): `flowId` + `flowName` fields; upstream stdout injected as `${var:INPUT}` in sub-flow; leaf node output becomes this node's stdout; cycle detection via `callStack: Set<string>` threaded through `runFlow`/`execNode`; self-reference filtered from the flow picker in NodePanel
+- **Watch trigger** (`mode: 'watch'`): fires on **create/modify only** — delete events are ignored so downstream File nodes can read safely; watches parent directory (more reliable on Windows); auto-creates parent dir if missing; strips surrounding quotes from the path; changed file path becomes the trigger node's stdout (`${prev}`); `notify = "6"` crate in Cargo.toml
+- **Webhook trigger** (`mode: 'webhook'`): Rust `tokio::net::TcpListener` on `127.0.0.1:{port}`; handles OPTIONS preflight with CORS headers so browser `fetch` works; reads full body via Content-Length loop; only fires flow on POST/GET (not OPTIONS); request body becomes trigger stdout; `WebhookMap: Arc<Mutex<HashMap<String, JoinHandle<()>>>>` in Rust state
+- **Secret store**: `useSecretsStore` (Zustand, localStorage `autoflow-secrets`); `${secret:NAME}` resolved in `interpolate.ts`; all log output masked via `origOnLog` wrapper in `runFlow`; never included in flow exports; RefField shows secrets section in picker with lock icon chips; Settings → Secrets section
+- **Group collapse**: `collapsed: boolean` in node data; when collapsed → style `{width:180, height:32}`, children `hidden:true`, `_expandedWidth/_expandedHeight` saved; chevron `⌄`/`›` buttons toggle; `.react-flow__node-group` CSS resets ReactFlow's default white background/border/padding
+- **Background trigger → editor routing**: `registerEditorCallback(flowId, cb)` in `backgroundRunner.ts` (module-level Map); FlowEditor registers via `useEffect([flow?.id])`; callback uses `handleRunRef.current` to avoid stale closures; `runFlowInBackground` calls callback and returns early if registered, otherwise does silent background run
+- **Trigger stdout (triggerOutput)**: `runFlow` accepts optional `triggerOutput?: string`; trigger node stdout is set to this value (watch path or webhook body) so `${prev}` works in first downstream node; passed through `runFlowInBackground` and `subflowNode`
+- **File/path quote stripping**: `fileNode` and `launchAppNode` in executor strip surrounding `"` or `'` from interpolated paths — prevents errors when RefField inserts in `"text"` mode; same stripping in cronService `watchOf` and Rust `watch_reload`
 - **Group nodes** (`type: 'group'`): visual-only containers; executor filters them out before `topSort`; stored with `parentId`, `extent: 'parent'`, `style.width/height` on `FlowNode`; group nodes must appear before children in the nodes array; created via toolbar Group button (2+ top-level non-group nodes selected), not in Add Node menu; resize snaps to 20 px grid when snap is enabled
 - **Snap to grid**: `snapEnabled` persisted in `settingsStore` (default `true`); toggleable with `G` key or toolbar magnet button; node drag uses ReactFlow `snapToGrid`/`snapGrid`; group resize uses `onResizeEnd` in `GroupNode` to snap final dimensions
 - **Box-select**: `selectionOnDrag={true}` + `panOnDrag={[1, 2]}` on ReactFlow — left drag = box-select, middle/right drag = pan
@@ -246,10 +282,11 @@ type LaunchAppNodeData = {
 - **`createUpdaterArtifacts: true`** in `tauri.conf.json` — required for updater bundle generation
 - **Workspace path** stored in `<appData>/workspace.json` (machine-local); flows in `<workspace>/flows/*.json`
 - **Launch App node**: uses a custom `launch_app` Rust command (not the shell plugin); always spawns a new detached process (`DETACHED_PROCESS` flag on Windows); fire-and-forget by default, or wait-for-exit to capture stdout/exit code downstream
-- **Launch at login**: custom `autostart_enable/disable/is_enabled` Rust commands write to `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` with a properly quoted path (bypasses `tauri-plugin-autostart` which omits quotes, breaking paths with spaces)
+- **Launch at login**: custom `autostart_enable(minimized)/disable/is_enabled/is_minimized` Rust commands write to `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` with a properly quoted path (bypasses `tauri-plugin-autostart` which omits quotes, breaking paths with spaces); `minimized: true` appends `--minimized` to the registry value so the app starts hidden on login
+- **Start minimized to tray**: window is `visible: false` in `tauri.conf.json`; setup shows it unless `--minimized` CLI arg is present; prevents window flash when autostart launches minimized
 - **Condition node pass-through**: condition nodes store the upstream parent's stdout (not the branch string) so a Loop immediately downstream receives the correct data
 - **Welcome screen** shown on first launch (no workspace set); picks workspace directory; example flows importable any time via Settings → Workspace
-- **Example flows** (19 total) live in `src/lib/exampleFlows.ts`; count shown in Settings is dynamic (`getExampleFlows().length`), never hardcoded
+- **Example flows** (22 total) live in `src/lib/exampleFlows.ts`; count shown in Settings is dynamic (`getExampleFlows().length`), never hardcoded
 - **DEV badge** in sidebar footer — rendered only when `import.meta.env.DEV` is true; absent in production builds
 - Tailwind v4 via `@tailwindcss/vite` (no `tailwind.config.js`)
 - `@xyflow/react` requires: `import "@xyflow/react/dist/style.css"` in `main.tsx`

@@ -3,6 +3,7 @@ import {
   Plus, Workflow, Clock, Play, Pencil, Timer, Globe, Terminal, GitBranch,
   Download, Upload, Trash2, AlertCircle, CalendarClock, Check, Copy, Search, X, Zap, ZapOff,
   Sun, CloudSun, Cloud, CloudRain, CloudLightning, FolderOpen, ExternalLink, Repeat2, AppWindow, Group,
+  Hourglass,
 } from 'lucide-react';
 import { useRunLogStore } from '../store/runLogStore';
 import { Select } from './ui/Select';
@@ -59,6 +60,8 @@ const NODE_ICON: Record<NodeKind, ReactNode> = {
   loop:      <Repeat2      size={10} />,
   launchapp: <AppWindow    size={10} />,
   group:     <Group        size={10} />,
+  delay:     <Hourglass    size={10} />,
+  subflow:   <Workflow     size={10} />,
 };
 
 const NODE_CHIP: Record<NodeKind, string> = {
@@ -71,6 +74,8 @@ const NODE_CHIP: Record<NodeKind, string> = {
   openurl:   'bg-violet-400/[.14] text-violet-300',
   launchapp: 'bg-rose-400/[.14] text-rose-300',
   group:     'bg-purple-400/[.14] text-purple-300',
+  delay:     'bg-teal-400/[.14] text-teal-300',
+  subflow:   'bg-indigo-400/[.14] text-indigo-300',
 };
 
 /* ─── Weather (run health) ─────────────────────────────────── */

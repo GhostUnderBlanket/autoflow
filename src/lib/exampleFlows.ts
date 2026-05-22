@@ -335,4 +335,82 @@ const EXAMPLES: FlowTemplate[] = [
     ],
   },
 
+  /* ── 19. Delay — rate-limited API calls ──────── */
+  {
+    name:        'Delay — Rate-Limited API Calls',
+    description: 'Calls a public API three times with a 1-second pause between each request. Demonstrates the Delay node as a simple rate-limiter inside a Loop.',
+    tags:        ['example', 'delay', 'loop', 'rest'],
+    variables:   { DELAY_MS: '1000' },
+    nodes: [
+      { id: 'dl-trig',  type: 'trigger', label: 'Run',            position: { x: 0,   y: 0 }, data: { mode: 'manual' } },
+      { id: 'dl-loop',  type: 'loop',    label: 'Repeat 3×',      position: { x: 240, y: 0 }, data: { mode: 'repeat', count: 3, delay: 0 } },
+      { id: 'dl-fetch', type: 'rest',    label: 'Fetch post',      position: { x: 500, y: 0 }, data: {
+        method: 'GET', endpoint: '', urlOverride: 'https://jsonplaceholder.typicode.com/posts/1', bodyMode: 'form', bodyRows: [],
+      }},
+      { id: 'dl-wait',  type: 'delay',   label: 'Wait 1 s',       position: { x: 760, y: 0 }, data: { label: 'Wait 1 s', ms: 1000 } },
+    ],
+    edges: [
+      { id: 'dl-e1', source: 'dl-trig',  target: 'dl-loop'  },
+      { id: 'dl-e2', source: 'dl-loop',  target: 'dl-fetch' },
+      { id: 'dl-e3', source: 'dl-fetch', target: 'dl-wait'  },
+    ],
+  },
+
+  /* ── 20. Watch trigger — log file changes ────── */
+  {
+    name:        'Watch Trigger — Log File Changes',
+    description: 'Fires whenever a watched file changes, then reads it and prints its size. Edit WATCH_PATH to point at a file you want to monitor. Save → arm the trigger.',
+    tags:        ['example', 'watch', 'file'],
+    variables:   { WATCH_PATH: 'C:\\Users\\Public\\watched.txt' },
+    nodes: [
+      { id: 'wt-trig', type: 'trigger', label: 'File changed', position: { x: 0,   y: 0 }, data: { mode: 'watch', watchPath: '${var:WATCH_PATH}', enabled: false } },
+      { id: 'wt-read', type: 'file',    label: 'Read file',    position: { x: 260, y: 0 }, data: { operation: 'read', path: '${var:WATCH_PATH}' } },
+      { id: 'wt-log',  type: 'script',  label: 'Log size',     position: { x: 520, y: 0 }, data: {
+        shell: 'powershell',
+        script: '$content = "${prev}"\nWrite-Output "File has $($content.Length) characters"',
+      }},
+    ],
+    edges: [
+      { id: 'wt-e1', source: 'wt-trig', target: 'wt-read' },
+      { id: 'wt-e2', source: 'wt-read', target: 'wt-log'  },
+    ],
+  },
+
+  /* ── 21. Webhook trigger — HTTP to flow ─────── */
+  {
+    name:        'Webhook Trigger — HTTP to Flow',
+    description: 'Starts a local HTTP listener. POST to http://127.0.0.1:3001/run to trigger the flow. The request body is echoed back by the script node. Change the port if 3001 is in use.',
+    tags:        ['example', 'webhook'],
+    variables:   {},
+    nodes: [
+      { id: 'wh-trig',  type: 'trigger', label: 'HTTP POST',   position: { x: 0,   y: 0 }, data: { mode: 'webhook', port: 3001, webhookPath: '/run', enabled: false } },
+      { id: 'wh-echo',  type: 'script',  label: 'Echo body',   position: { x: 260, y: 0 }, data: {
+        shell: 'powershell',
+        script: 'Write-Output "Received: ${prev}"',
+      }},
+    ],
+    edges: [
+      { id: 'wh-e1', source: 'wh-trig', target: 'wh-echo' },
+    ],
+  },
+
+  /* ── 22. Sub-flow — compose two flows ────────── */
+  {
+    name:        'Sub-flow — Health Check',
+    description: 'Demonstrates the Sub-flow node. This flow fetches a URL and passes the response to a sub-flow for processing. Import this alongside another flow and select it in the Sub-flow node panel.',
+    tags:        ['example', 'sub-flow'],
+    variables:   { URL: 'https://jsonplaceholder.typicode.com/posts/1' },
+    nodes: [
+      { id: 'sf-trig',    type: 'trigger', label: 'Run',           position: { x: 0,   y: 0 }, data: { mode: 'manual' } },
+      { id: 'sf-fetch',   type: 'rest',    label: 'Fetch data',    position: { x: 240, y: 0 }, data: { method: 'GET', endpoint: '', urlOverride: '${var:URL}', bodyMode: 'form', bodyRows: [] } },
+      { id: 'sf-process', type: 'subflow', label: 'Process result', position: { x: 500, y: 0 }, data: { label: 'Process result', flowId: '', flowName: '(select a flow)' } },
+      { id: 'sf-log',     type: 'script',  label: 'Show output',   position: { x: 760, y: 0 }, data: { shell: 'powershell', script: 'Write-Output "Sub-flow returned: ${prev}"' } },
+    ],
+    edges: [
+      { id: 'sf-e1', source: 'sf-trig',    target: 'sf-fetch'   },
+      { id: 'sf-e2', source: 'sf-fetch',   target: 'sf-process' },
+      { id: 'sf-e3', source: 'sf-process', target: 'sf-log'     },
+    ],
+  },
+
 ];
