@@ -303,7 +303,7 @@ function Toolbar({ flowName, isRunning, isDirty, canUndo, canRedo, hasTrigger, s
           <Square size={11} fill="currentColor" />Stop
         </button>
       ) : (
-        <button onClick={onRun} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent text-white text-[12px] font-semibold hover:bg-accent/90 active:scale-[.97] transition-all shadow-md shadow-accent/20">
+        <button onClick={() => onRun()} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent text-white text-[12px] font-semibold hover:bg-accent/90 active:scale-[.97] transition-all shadow-md shadow-accent/20">
           <Play size={12} fill="currentColor" />Run
         </button>
       )}

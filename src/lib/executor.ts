@@ -556,7 +556,14 @@ function notifyNode(
   const result = (async (): Promise<{ exitCode: number | null; stdout: string }> => {
     try {
       onLog(`   🔔 ${title}${body ? `: ${body.slice(0, 80)}` : ''}`, 'info');
-      await sendNotification({ title, body });
+      // sendNotification is typed void but may return a Promise at runtime.
+      // Race against a 5 s fallback so the flow never hangs if the OS
+      // notification API doesn't resolve (e.g. no AUMID in dev mode).
+      const notifCall = Promise.resolve().then(() => sendNotification({ title, body }));
+      await Promise.race([
+        notifCall,
+        new Promise<void>(resolve => setTimeout(resolve, 5000)),
+      ]);
       onLog('   ✓ notification sent', 'success');
       return { exitCode: 0, stdout: title };
     } catch (e) {
@@ -649,6 +656,7 @@ export function runFlow(
   };
 
   void (async () => {
+    try {
     // Group nodes are visual containers only — exclude from execution.
     const execNodes = nodes.filter(n => n.type !== 'group');
     const ordered = topSort(execNodes, edges);
@@ -824,7 +832,8 @@ export function runFlow(
       if (!handle) {
         // Trigger nodes have no subprocess — use triggerOutput (e.g. webhook body) as their stdout
         // so downstream nodes can access it via ${prev}.
-        const tStdout = type === 'trigger' ? (triggerOutput ?? '') : '';
+        // Guard: onClick handlers can leak a MouseEvent as the first arg — ignore non-strings.
+        const tStdout = type === 'trigger' ? (typeof triggerOutput === 'string' ? triggerOutput : '') : '';
         if (type === 'trigger') log(tStdout ? `   fired (body: ${tStdout.slice(0, 80)}${tStdout.length > 80 ? '…' : ''})` : '   fired', 'info');
         results.set(node.id, { id: node.id, label, stdout: tStdout, exitCode: 0 });
         cbs.onNodeDone(node.id, 0);
@@ -850,6 +859,12 @@ export function runFlow(
     if (signal.stopped)  { log('■  Stopped', 'warn');         cbs.onDone(false); }
     else if (flowOk)     { log('✓  Flow complete', 'success'); cbs.onDone(true);  }
     else                 { log('✗  Flow failed', 'error');     cbs.onDone(false); }
+    } catch (err) {
+      // Safety net: if an unexpected exception escapes the main loop, ensure
+      // onDone is still called so the UI never gets permanently stuck.
+      log(`✗  Unexpected error: ${String(err)}`, 'error');
+      cbs.onDone(false);
+    }
   })();
 
   return { stop };

@@ -88,7 +88,17 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
     if (get().loaded) return;
     try {
       const onDisk = await loadFlows();
-      set({ flows: onDisk, loaded: true });
+      // Any flow still marked 'running' on disk was interrupted by a previous crash.
+      // Reset to 'idle' so the editor doesn't appear stuck on the next launch.
+      const sanitized = onDisk.map(f => {
+        if (f.status === 'running') {
+          const fixed = { ...f, status: 'idle' as const };
+          saveFlow(fixed); // overwrite the stale on-disk status
+          return fixed;
+        }
+        return f;
+      });
+      set({ flows: sanitized, loaded: true });
     } catch (e) {
       console.error('[flowStore] bootstrap failed:', e);
       set({ flows: [], loaded: true });
