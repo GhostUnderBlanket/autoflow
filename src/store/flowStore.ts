@@ -4,7 +4,7 @@ import {
   loadFlows, saveFlow, deleteFlowFile,
 } from '../lib/flowPersistence';
 
-type NavTarget = 'home' | 'editor' | 'settings' | 'runlog';
+type NavTarget = 'home' | 'editor' | 'settings' | 'runlog' | 'nodes';
 
 interface FlowStore {
   flows:            Flow[];

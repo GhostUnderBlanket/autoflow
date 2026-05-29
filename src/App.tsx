@@ -8,7 +8,8 @@ import { ToastContainer } from './components/ToastContainer';
 import { HomePage }     from './components/HomePage';
 import { FlowEditor }   from './components/FlowEditor';
 import { SettingsPage } from './components/SettingsPage';
-import { RunLogPage }   from './components/RunLogPage';
+import { RunLogPage }      from './components/RunLogPage';
+import { CustomNodesPage } from './components/CustomNodesPage';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { useFlowStore }      from './store/flowStore';
 import { useWorkspaceStore } from './store/workspaceStore';
@@ -120,6 +121,7 @@ export default function App() {
         {view === 'editor'   && <FlowEditor />}
         {view === 'settings' && <SettingsPage />}
         {view === 'runlog'   && <RunLogPage />}
+        {view === 'nodes'    && <CustomNodesPage />}
       </div>
       <ToastContainer />
     </div>

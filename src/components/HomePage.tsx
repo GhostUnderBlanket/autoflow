@@ -3,7 +3,7 @@ import {
   Plus, Workflow, Clock, Play, Pencil, Timer, Globe, Terminal, GitBranch,
   Download, Upload, Trash2, AlertCircle, CalendarClock, Check, Copy, Search, X, Zap, ZapOff,
   Sun, CloudSun, Cloud, CloudRain, CloudLightning, FolderOpen, ExternalLink, Repeat2, AppWindow, Group,
-  Hourglass, Bell, Cpu, Blocks,
+  Hourglass, Bell, Cpu, Blocks, RefreshCw, BookOpen,
 } from 'lucide-react';
 import { useRunLogStore } from '../store/runLogStore';
 import { Select } from './ui/Select';
@@ -17,6 +17,9 @@ import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { ask } from '@tauri-apps/plugin-dialog';
 import { fetchSchedulerState, type FlowJobState } from '../lib/cronService';
 import { runFlowInBackground } from '../lib/backgroundRunner';
+import { openPath } from '@tauri-apps/plugin-opener';
+import { useWorkspaceStore } from '../store/workspaceStore';
+import { getExampleFlows } from '../lib/exampleFlows';
 import type { Flow, NodeKind } from '../types/flow';
 import { tagColor } from '../lib/tagColor';
 
@@ -146,7 +149,21 @@ function FlowCard({ flow, index, schedule, weather, selected, onToggleSelect, on
   onTagClick:     (tag: string) => void;
 }) {
   const s = STATUS_MAP[flow.status];
-  const types = [...new Set(flow.nodes.map((n) => n.type))];
+
+  // For custom nodes, key by defId so each distinct node type shows its own chip.
+  type ChipData = { key: string; type: NodeKind; label: string };
+  const nodeChips: ChipData[] = [];
+  const seenKeys = new Set<string>();
+  for (const n of flow.nodes) {
+    const t = n.type as NodeKind;
+    const d = n.data as Record<string, unknown>;
+    const defId = t === 'custom' ? (d.defId as string | undefined) : undefined;
+    const key = defId ?? t;
+    if (seenKeys.has(key)) continue;
+    seenKeys.add(key);
+    nodeChips.push({ key, type: t, label: defId ?? t });
+  }
+
   const cronTrigger = flow.nodes.find(n => n.type === 'trigger' && (n.data as { mode?: string }).mode === 'cron');
   const isCron  = !!cronTrigger;
   const isArmed = cronTrigger ? (cronTrigger.data as { enabled?: boolean }).enabled !== false : false;
@@ -217,23 +234,23 @@ function FlowCard({ flow, index, schedule, weather, selected, onToggleSelect, on
         </div>
 
         {/* Row 3: node type chips (max 3 visible) */}
-        {types.length > 0 && (
+        {nodeChips.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
-            {types.slice(0, 3).map((type) => (
+            {nodeChips.slice(0, 3).map(chip => (
               <span
-                key={type}
+                key={chip.key}
                 className={clsx(
                   'inline-flex items-center gap-1 px-2 py-[3px] rounded-md text-[10.5px] font-medium font-mono',
-                  NODE_CHIP[type],
+                  NODE_CHIP[chip.type],
                 )}
               >
-                {NODE_ICON[type]}
-                {type}
+                {NODE_ICON[chip.type]}
+                {chip.label}
               </span>
             ))}
-            {types.length > 3 && (
+            {nodeChips.length > 3 && (
               <span className="inline-flex items-center px-2 py-[3px] rounded-md text-[10.5px] font-mono bg-ink-ghost/10 text-ink-ghost">
-                +{types.length - 3} more
+                +{nodeChips.length - 3} more
               </span>
             )}
           </div>
@@ -396,10 +413,12 @@ async function exportFlows(flows: Flow[], setError: (e: string | null) => void) 
 /* ─── HomePage ─────────────────────────────────────────────── */
 
 export function HomePage() {
-  const { flows, addFlow, updateFlow, setActiveFlow, setView, deleteFlow, duplicateFlow } = useFlowStore();
+  const { flows, addFlow, updateFlow, setActiveFlow, setView, deleteFlow, duplicateFlow, reload } = useFlowStore();
+  const wsPath = useWorkspaceStore(s => s.path);
   const sessions = useRunLogStore(s => s.sessions);
   const [opError,      setOpError]    = useState<string | null>(null);
   const [dragOver,     setDragOver]   = useState(false);
+  const [exBusy,       setExBusy]     = useState(false);
   const [schedules,    setSchedules]  = useState<Map<string, FlowJobState>>(new Map());
   const [selectedIds,  setSelected]   = useState<Set<string>>(new Set());
   const [search,         setSearch]        = useState('');
@@ -533,6 +552,17 @@ export function HomePage() {
       return { ...n, data: { ...n.data, enabled: !currentEnabled } };
     });
     updateFlow(id, { nodes, updatedAt: Date.now() });
+  }
+
+  async function handleImportExamples() {
+    setExBusy(true);
+    try {
+      getExampleFlows().forEach(f => addFlow(f));
+    } catch (e) {
+      setOpError(`Examples import failed: ${String(e)}`);
+    } finally {
+      setExBusy(false);
+    }
   }
 
   async function handleImportFlow() {
@@ -733,6 +763,36 @@ export function HomePage() {
               </button>
             )}
           </div>
+
+          <button
+            onClick={() => void handleImportExamples()}
+            disabled={exBusy}
+            className="flex items-center gap-1.5 px-2.5 py-[5px] rounded-md border border-wire
+                       bg-surface text-ink-dim hover:text-ink hover:bg-raised hover:border-wire-lit
+                       transition-colors text-[11.5px] font-medium disabled:opacity-40"
+            title={`Import ${getExampleFlows().length} example flows`}
+          >
+            <BookOpen size={12} />
+            Examples
+          </button>
+          <button
+            onClick={() => void reload()}
+            className="p-[6px] rounded-md border border-wire bg-surface text-ink-ghost
+                       hover:text-ink hover:bg-raised hover:border-wire-lit transition-colors"
+            title="Reload flows from disk"
+          >
+            <RefreshCw size={12} />
+          </button>
+          {wsPath && (
+            <button
+              onClick={() => void openPath(wsPath).catch(() => {})}
+              className="p-[6px] rounded-md border border-wire bg-surface text-ink-ghost
+                         hover:text-ink hover:bg-raised hover:border-wire-lit transition-colors"
+              title="Open workspace folder"
+            >
+              <FolderOpen size={12} />
+            </button>
+          )}
         </div>
       )}
 

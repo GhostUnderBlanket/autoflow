@@ -1,4 +1,4 @@
-import { Zap, LayoutGrid, ScrollText, Settings2 } from 'lucide-react';
+import { Zap, LayoutGrid, ScrollText, Settings2, Blocks } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { clsx } from 'clsx';
 import { useFlowStore } from '../store/flowStore';
@@ -33,7 +33,7 @@ export function Sidebar() {
   const setView      = useFlowStore(s => s.setView);
   const requestNav   = useFlowStore(s => s.requestNav);
 
-  function navTo(target: 'home' | 'runlog' | 'settings') {
+  function navTo(target: 'home' | 'runlog' | 'settings' | 'nodes') {
     if (view === 'editor' && editorDirty) {
       requestNav(target);
     } else {
@@ -67,6 +67,12 @@ export function Sidebar() {
           label="Flows"
           active={view === 'home'}
           onClick={() => navTo('home')}
+        />
+        <NavItem
+          icon={<Blocks size={15} />}
+          label="Nodes"
+          active={view === 'nodes'}
+          onClick={() => navTo('nodes')}
         />
         <NavItem
           icon={<ScrollText size={15} />}

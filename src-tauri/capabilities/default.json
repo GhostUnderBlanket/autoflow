@@ -26,6 +26,7 @@
     { "identifier": "fs:allow-read-dir",        "allow": [{ "path": "**" }] },
     { "identifier": "fs:allow-mkdir",           "allow": [{ "path": "**" }] },
     { "identifier": "fs:allow-exists",          "allow": [{ "path": "**" }] },
+    { "identifier": "fs:allow-remove",          "allow": [{ "path": "**" }] },
     "dialog:default",
     "notification:default",
     {

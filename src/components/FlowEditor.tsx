@@ -462,7 +462,7 @@ export function FlowEditor() {
   const [paletteOpen,  setPaletteOpen] = useState(false);
   const [isDirty,      setIsDirty]     = useState(false);
   const [showExitDlg,  setShowExitDlg] = useState(false);
-  const [exitTarget,   setExitTarget]  = useState<'home' | 'editor' | 'settings' | 'runlog'>('home');
+  const [exitTarget,   setExitTarget]  = useState<'home' | 'editor' | 'settings' | 'runlog' | 'nodes'>('home');
   const [nodeStatuses, setNodeStatuses]= useState<Map<string, NodeStatus>>(new Map());
   const { update: updateSettings } = useSettingsStore();
   const snapEnabled = useSettingsStore(s => s.settings.snapEnabled);
