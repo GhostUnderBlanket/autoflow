@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
 import { Check, RotateCcw, Globe, AlertTriangle, FolderOpen, Eye, EyeOff, RefreshCw, Download, Plus, Trash2, Lock } from 'lucide-react';
 import { useSecretsStore } from '../store/secretsStore';
@@ -15,7 +15,7 @@ import { useFlowStore } from '../store/flowStore';
 import type { AppSettings } from '../types/settings';
 import type { ReactNode } from 'react';
 
-/* â”€â”€â”€ Category nav â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── Category nav ───────────────────────────── */
 
 type Category = 'workspace' | 'rest' | 'shell' | 'window' | 'runlog' | 'secrets' | 'about';
 
@@ -25,11 +25,11 @@ const CATEGORIES: { id: Category; label: string; sub: string }[] = [
   { id: 'rest',      label: 'REST API',          sub: '2 settings'  },
   { id: 'shell',     label: 'Shell & Execution', sub: '3 settings'  },
   { id: 'runlog',    label: 'Run Log',           sub: '1 setting'   },
-  { id: 'secrets',   label: 'Secrets',           sub: '${secret:â€¦}' },
+  { id: 'secrets',   label: 'Secrets',           sub: '${secret:…}' },
   { id: 'about',     label: 'About',             sub: 'info & keys' },
 ];
 
-/* â”€â”€â”€ Primitives â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── Primitives ─────────────────────────────── */
 
 function SettingRow({
   index, label, description, children,
@@ -140,7 +140,7 @@ function Stepper({
         className="w-[26px] h-[26px] rounded-md bg-raised border border-wire text-ink-dim
                    hover:text-ink hover:border-wire-lit transition-colors text-[14px] font-mono
                    disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center"
-      >âˆ’</button>
+      >−</button>
       <span className="text-[13px] font-mono text-ink tabular-nums w-10 text-center">{value}</span>
       <button
         onClick={inc} disabled={value >= max}
@@ -153,7 +153,7 @@ function Stepper({
   );
 }
 
-/* â”€â”€â”€ Section header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── Section header ─────────────────────────── */
 
 function SectionHead({ title, description }: { title: string; description: string }) {
   return (
@@ -164,7 +164,7 @@ function SectionHead({ title, description }: { title: string; description: strin
   );
 }
 
-/* â”€â”€â”€ Sections â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── Sections ───────────────────────────────── */
 
 function WorkspaceSection() {
   const path  = useWorkspaceStore((s) => s.path);
@@ -234,7 +234,7 @@ function WorkspaceSection() {
             )}
           >
             <FolderOpen size={13} />
-            Changeâ€¦
+            Change…
           </button>
           <button
             onClick={openWorkspace}
@@ -262,7 +262,7 @@ function RestSection() {
   const [test, setTest] = useState<{ kind: 'idle' | 'ok' | 'err' | 'busy'; msg: string }>({ kind: 'idle', msg: '' });
 
   async function handleTest() {
-    setTest({ kind: 'busy', msg: 'sending HEAD requestâ€¦' });
+    setTest({ kind: 'busy', msg: 'sending HEAD request…' });
     const base = settings.restBaseUrl.trim().replace(/\/+$/, '');
     if (!base) { setTest({ kind: 'err', msg: 'Base URL is empty.' }); return; }
     try {
@@ -293,7 +293,7 @@ function RestSection() {
         <TextInput
           value={settings.restBaseUrl}
           onChange={v => update({ restBaseUrl: v })}
-          placeholder="https://â€¦"
+          placeholder="https://…"
           mono
         />
       </SettingRow>
@@ -308,8 +308,8 @@ function RestSection() {
             </p>
             <p className="text-[10.5px] text-ink-ghost">Individual REST API nodes can override this in the node panel.</p>
             {test.kind === 'busy' && <p className="text-[11px] text-ink-dim font-mono">{test.msg}</p>}
-            {test.kind === 'ok'   && <p className="text-[11px] text-success font-mono">âœ“ host reachable â€” {test.msg}</p>}
-            {test.kind === 'err'  && <p className="text-[11px] text-danger  font-mono">âœ— {test.msg}</p>}
+            {test.kind === 'ok'   && <p className="text-[11px] text-success font-mono">✓ host reachable — {test.msg}</p>}
+            {test.kind === 'err'  && <p className="text-[11px] text-danger  font-mono">✗ {test.msg}</p>}
           </div>
         }
       >
@@ -318,7 +318,7 @@ function RestSection() {
             <TextInput
               value={settings.restToken}
               onChange={v => update({ restToken: v })}
-              placeholder="Bearer tokenâ€¦"
+              placeholder="Bearer token…"
               type={showToken ? 'text' : 'password'}
               mono
             />
@@ -518,7 +518,7 @@ type UpdateCheckState =
 function AboutSection() {
   const { reset } = useSettingsStore();
   const [upd, setUpd] = useState<UpdateCheckState>({ kind: 'idle' });
-  const [appVersion, setAppVersion] = useState<string>('â€¦');
+  const [appVersion, setAppVersion] = useState<string>('…');
 
   useEffect(() => {
     getVersion().then(setAppVersion).catch(() => setAppVersion('?'));
@@ -556,7 +556,7 @@ function AboutSection() {
     <div style={{ animation: 'fade-up 0.22s ease both' }}>
       <SectionHead
         title="About"
-        description={`autoflow v${appVersion} Â· Tauri v2 Â· React 19 Â· @xyflow/react Â· Tailwind CSS v4`}
+        description={`autoflow v${appVersion} · Tauri v2 · React 19 · @xyflow/react · Tailwind CSS v4`}
       />
 
       {/* Update checker */}
@@ -565,12 +565,12 @@ function AboutSection() {
           <div>
             <p className="text-[13px] font-semibold text-ink">Check for Updates</p>
             <p className="text-[12px] text-ink-dim mt-0.5">
-              {upd.kind === 'uptodate'   && <span className="text-success">âœ“ You're on the latest version.</span>}
+              {upd.kind === 'uptodate'   && <span className="text-success">✓ You're on the latest version.</span>}
               {upd.kind === 'available'  && <span className="text-accent-soft">v{upd.version} is available.</span>}
               {upd.kind === 'error'      && <span className="text-danger font-mono">{upd.msg}</span>}
               {upd.kind === 'idle'       && `Current version: ${appVersion}`}
-              {upd.kind === 'checking'   && <span className="text-ink-ghost">Checkingâ€¦</span>}
-              {upd.kind === 'downloading'&& <span className="text-ink-ghost">Downloading and installingâ€¦</span>}
+              {upd.kind === 'checking'   && <span className="text-ink-ghost">Checking…</span>}
+              {upd.kind === 'downloading'&& <span className="text-ink-ghost">Downloading and installing…</span>}
             </p>
           </div>
 
@@ -598,7 +598,7 @@ function AboutSection() {
               )}
             >
               <RefreshCw size={12} className={upd.kind === 'checking' ? 'animate-spin' : ''} />
-              {upd.kind === 'checking' ? 'Checkingâ€¦' : 'Check'}
+              {upd.kind === 'checking' ? 'Checking…' : 'Check'}
             </button>
             <button
               onClick={() => void openUrl('https://github.com/GhostUnderBlanket/autoflow')}
@@ -667,7 +667,7 @@ function AboutSection() {
   );
 }
 
-/* â”€â”€â”€ Secrets section â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── Secrets section ────────────────────────── */
 
 function SecretsSection() {
   const { secrets, setSecret, deleteSecret } = useSecretsStore();
@@ -706,7 +706,7 @@ function SecretsSection() {
               <Lock size={11} className="text-ink-ghost shrink-0" />
               <span className="font-mono text-[12px] text-ink w-36 shrink-0 truncate">{name}</span>
               <span className="flex-1 font-mono text-[11px] text-ink-dim truncate">
-                {revealed[name] ? value : 'â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢'}
+                {revealed[name] ? value : '••••••••'}
               </span>
               <button
                 onClick={() => setRevealed(r => ({ ...r, [name]: !r[name] }))}
@@ -774,7 +774,7 @@ function SecretsSection() {
   );
 }
 
-/* â”€â”€â”€ SettingsPage â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── SettingsPage ────────────────────────────── */
 
 export function SettingsPage({ initialSection }: { initialSection?: Category } = {}) {
   const [active, setActive] = useState<Category>(initialSection ?? 'workspace');
