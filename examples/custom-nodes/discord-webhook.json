@@ -1,0 +1,32 @@
+{
+  "id": "discord-webhook",
+  "label": "Discord Webhook",
+  "color": "#5865F2",
+  "description": "Post a message to a Discord channel via webhook URL",
+  "version": "1.0.0",
+  "fields": [
+    {
+      "name": "url",
+      "label": "Webhook URL",
+      "type": "text",
+      "placeholder": "https://discord.com/api/webhooks/123456/abcdef"
+    },
+    {
+      "name": "content",
+      "label": "Message",
+      "type": "textarea",
+      "placeholder": "Hello from Autoflow! ${prev}"
+    },
+    {
+      "name": "username",
+      "label": "Bot name",
+      "type": "text",
+      "default": "Autoflow",
+      "placeholder": "Autoflow"
+    }
+  ],
+  "executor": {
+    "type": "js",
+    "fn": "async ({ fields, log }) => { if (!fields.url) throw new Error('Webhook URL is required'); const body = { content: fields.content, username: fields.username || 'Autoflow' }; log('POST ' + fields.url); const res = await fetch(fields.url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); if (!res.ok) { const err = await res.text().catch(() => ''); throw new Error('Discord returned ' + res.status + (err ? ': ' + err : '')); } log('✓ message sent'); return fields.content; }"
+  }
+}

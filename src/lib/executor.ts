@@ -10,6 +10,7 @@ import type { LogEntry } from '../types/flow';
 import { interpolate, type NodeRunResult } from './interpolate';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { useFlowStore } from '../store/flowStore';
+import { useCustomNodeStore } from '../store/customNodeStore';
 
 export interface BodyRow { key: string; value: string }
 
@@ -289,6 +290,10 @@ function execNode(
 
   if (type === 'envvar') {
     return envVarNode(d, interp, onLog);
+  }
+
+  if (type === 'custom') {
+    return customNode(d, interp, onLog, results, parents, id, cwd, settings);
   }
 
   // Script node
@@ -608,6 +613,70 @@ function envVarNode(
   })();
 
   return { result, kill: async () => {} };
+}
+
+/* ─── Custom node ─────────────────────────────────────────────── */
+
+function customNode(
+  d: Record<string, unknown>,
+  interp: (s: string) => string,
+  onLog: AddLog,
+  results: Map<string, NodeRunResult>,
+  parents: string[],
+  id: string,
+  cwd: string | undefined,
+  _settings: AppSettings,
+): SpawnHandle {
+  const defId = (d.defId as string) ?? '';
+  const def = useCustomNodeStore.getState().defs.find(x => x.id === defId);
+
+  if (!def) {
+    onLog(`   ✗ custom node definition not found${defId ? `: "${defId}"` : ''}`, 'error');
+    return { result: Promise.resolve({ exitCode: 1, stdout: '' }), kill: async () => {} };
+  }
+
+  // Interpolate each field value using the standard engine
+  const fields: Record<string, string> = {};
+  for (const field of def.fields) {
+    const raw = (d[field.name] as string) ?? field.default ?? '';
+    fields[field.name] = interp(raw);
+  }
+
+  if (def.executor.type === 'script') {
+    // Replace ${field.NAME} tokens in the template, then pass through interp for ${prev} etc.
+    const resolved = interp(
+      def.executor.template.replace(/\$\{field\.(\w+)\}/g, (_, k) => fields[k] ?? ''),
+    );
+    const shell = def.executor.shell;
+    let program: string, args: string[];
+    if (shell === 'powershell') { program = 'powershell'; args = ['-NonInteractive', '-Command', resolved]; }
+    else if (shell === 'bash')  { program = 'bash';        args = ['-c', resolved]; }
+    else                        { program = 'cmd';         args = ['/c', resolved]; }
+    return spawnSubprocess(id, program, args, cwd, onLog);
+  }
+
+  if (def.executor.type === 'js') {
+    const upstream = parents.map(pid => results.get(pid)?.stdout?.trim() ?? '').filter(Boolean).join('\n');
+    const fnStr = def.executor.fn;
+
+    const result = (async (): Promise<{ exitCode: number | null; stdout: string }> => {
+      try {
+        // eslint-disable-next-line no-new-func
+        const fn = new Function(`return (${fnStr})`)() as (ctx: Record<string, unknown>) => Promise<unknown>;
+        const out = await fn({ fields, prev: upstream, log: (msg: string) => onLog(String(msg), 'info') });
+        const stdout = typeof out === 'string' ? out : out != null ? JSON.stringify(out) : '';
+        return { exitCode: 0, stdout };
+      } catch (e) {
+        onLog(`   ✗ ${String(e)}`, 'error');
+        return { exitCode: 1, stdout: '' };
+      }
+    })();
+
+    return { result, kill: async () => {} };
+  }
+
+  onLog('   ✗ unknown executor type', 'error');
+  return { result: Promise.resolve({ exitCode: 1, stdout: '' }), kill: async () => {} };
 }
 
 /* ─── Public API ────────────────────────────────────────────── */

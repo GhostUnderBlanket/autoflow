@@ -1,0 +1,38 @@
+{
+  "id": "slack-message",
+  "label": "Slack Message",
+  "color": "#611F69",
+  "description": "Post a message to a Slack channel via Incoming Webhook",
+  "version": "1.0.0",
+  "fields": [
+    {
+      "name": "url",
+      "label": "Webhook URL",
+      "type": "text",
+      "placeholder": "https://hooks.slack.com/services/T00000000/B00000000/XXXX"
+    },
+    {
+      "name": "text",
+      "label": "Message",
+      "type": "textarea",
+      "placeholder": "Build complete: ${prev}"
+    },
+    {
+      "name": "channel",
+      "label": "Channel (optional)",
+      "type": "text",
+      "placeholder": "#deploys"
+    },
+    {
+      "name": "icon_emoji",
+      "label": "Icon emoji (optional)",
+      "type": "text",
+      "default": ":robot_face:",
+      "placeholder": ":robot_face:"
+    }
+  ],
+  "executor": {
+    "type": "js",
+    "fn": "async ({ fields, log }) => { if (!fields.url) throw new Error('Webhook URL is required'); const body = { text: fields.text }; if (fields.channel) body.channel = fields.channel; if (fields.icon_emoji) body.icon_emoji = fields.icon_emoji; log('POST ' + fields.url); const res = await fetch(fields.url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); const reply = await res.text(); if (!res.ok || reply !== 'ok') throw new Error('Slack returned ' + res.status + ': ' + reply); log('✓ ' + reply); return fields.text; }"
+  }
+}

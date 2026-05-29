@@ -13,6 +13,7 @@ import { WelcomeScreen } from './components/WelcomeScreen';
 import { useFlowStore }      from './store/flowStore';
 import { useWorkspaceStore } from './store/workspaceStore';
 import { useSettingsStore }  from './store/settingsStore';
+import { useCustomNodeStore } from './store/customNodeStore';
 import { initCronService } from './lib/cronService';
 import { ensureNotificationPermission } from './lib/backgroundRunner';
 
@@ -28,6 +29,8 @@ export default function App() {
   const closeToTray = useSettingsStore((s) => s.settings.closeToTray);
   const theme       = useSettingsStore((s) => s.settings.theme);
 
+  const loadCustomDefs = useCustomNodeStore((s) => s.loadDefs);
+
   // Show the main window once React has rendered its first frame.
   // The window starts hidden (visible:false in tauri.conf.json) so it never
   // appears blank. For --minimized autostart launches we stay hidden in tray.
@@ -38,11 +41,14 @@ export default function App() {
   }, []);
 
   // 1) Read the workspace marker at launch. 2) Once we have a workspace,
-  // load flows from disk.
+  // load flows and custom node defs from disk.
   useEffect(() => { void wsRefresh(); }, [wsRefresh]);
   useEffect(() => {
-    if (wsPath) void bootstrap();
-  }, [wsPath, bootstrap]);
+    if (wsPath) {
+      void bootstrap();
+      void loadCustomDefs();
+    }
+  }, [wsPath, bootstrap, loadCustomDefs]);
 
   // Start the cron service once flows are loaded.
   useEffect(() => {

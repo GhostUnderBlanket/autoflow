@@ -11,6 +11,7 @@ import { DelayNode }      from './DelayNode';
 import { SubflowNode }    from './SubflowNode';
 import { NotifyNode }     from './NotifyNode';
 import { EnvVarNode }     from './EnvVarNode';
+import { CustomNode }     from './CustomNode';
 
 export const nodeTypes = {
   trigger:   TriggerNode,
@@ -26,4 +27,5 @@ export const nodeTypes = {
   subflow:   SubflowNode,
   notify:    NotifyNode,
   envvar:    EnvVarNode,
+  custom:    CustomNode,
 } as const;

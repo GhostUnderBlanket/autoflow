@@ -3,7 +3,7 @@ import {
   Plus, Workflow, Clock, Play, Pencil, Timer, Globe, Terminal, GitBranch,
   Download, Upload, Trash2, AlertCircle, CalendarClock, Check, Copy, Search, X, Zap, ZapOff,
   Sun, CloudSun, Cloud, CloudRain, CloudLightning, FolderOpen, ExternalLink, Repeat2, AppWindow, Group,
-  Hourglass, Bell, Cpu,
+  Hourglass, Bell, Cpu, Blocks,
 } from 'lucide-react';
 import { useRunLogStore } from '../store/runLogStore';
 import { Select } from './ui/Select';
@@ -64,6 +64,7 @@ const NODE_ICON: Record<NodeKind, ReactNode> = {
   subflow:   <Workflow     size={10} />,
   notify:    <Bell         size={10} />,
   envvar:    <Cpu          size={10} />,
+  custom:    <Blocks       size={10} />,
 };
 
 const NODE_CHIP: Record<NodeKind, string> = {
@@ -80,6 +81,7 @@ const NODE_CHIP: Record<NodeKind, string> = {
   subflow:   'bg-indigo-400/[.14] text-indigo-300',
   notify:    'bg-yellow-400/[.14] text-yellow-300',
   envvar:    'bg-cyan-400/[.14] text-cyan-300',
+  custom:    'bg-zinc-400/[.14] text-zinc-300',
 };
 
 /* ─── Weather (run health) ─────────────────────────────────── */
@@ -436,7 +438,7 @@ export function HomePage() {
         for (const path of jsonPaths) {
           try {
             const text = await invoke<string>('read_text_file', { path });
-            const flows = parseFlowsFile(text);
+            const flows = await parseFlowsFile(text);
             for (const flow of flows) addFlow(flow);
             imported += flows.length;
           } catch { /* skip unreadable or invalid files */ }

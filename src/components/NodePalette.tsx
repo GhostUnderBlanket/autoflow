@@ -4,17 +4,19 @@ import { clsx } from 'clsx';
 import type { NodeKind } from '../types/flow';
 
 export interface PaletteItem {
-  type:     NodeKind;
-  icon:     React.ReactNode;
-  label:    string;
-  color:    string;
-  disabled?: boolean;
+  type:      NodeKind;
+  icon:      React.ReactNode;
+  label:     string;
+  color:     string;
+  disabled?:  boolean;
+  /** Present for custom nodes — identifies which definition to instantiate. */
+  defId?:    string;
 }
 
 interface NodePaletteProps {
   open:        boolean;
   items:       PaletteItem[];
-  onSelect:    (type: NodeKind) => void;
+  onSelect:    (type: NodeKind, defId?: string) => void;
   onClose:     () => void;
 }
 
@@ -64,7 +66,7 @@ export function NodePalette({ open, items, onSelect, onClose }: NodePaletteProps
     if (e.key === 'Enter') {
       e.preventDefault();
       const item = filtered[activeIdx];
-      if (item) { onSelect(item.type); onClose(); }
+      if (item) { onSelect(item.type, item.defId); onClose(); }
     }
   }
 
@@ -111,9 +113,9 @@ export function NodePalette({ open, items, onSelect, onClose }: NodePaletteProps
             </li>
           )}
           {filtered.map((item, i) => (
-            <li key={item.type}>
+            <li key={item.defId ?? item.type}>
               <button
-                onClick={() => { onSelect(item.type); onClose(); }}
+                onClick={() => { onSelect(item.type, item.defId); onClose(); }}
                 onMouseEnter={() => setActiveIdx(i)}
                 className={clsx(
                   'flex items-center gap-3 w-full px-3.5 py-2.5 text-left transition-colors',
@@ -133,7 +135,7 @@ export function NodePalette({ open, items, onSelect, onClose }: NodePaletteProps
                   className="text-[9px] font-mono px-1.5 py-0.5 rounded shrink-0"
                   style={{ color: item.color, background: `${item.color}18` }}
                 >
-                  {item.type}
+                  {item.defId ?? item.type}
                 </span>
               </button>
             </li>

@@ -21,13 +21,14 @@ import {
   Timer, Globe, Terminal, GitBranch, ChevronDown,
   ZoomIn, ZoomOut, Maximize2, FolderOpen, ExternalLink, Repeat2,
   FileText, Braces, AppWindow, Magnet, Group, Ungroup,
-  Hourglass, Workflow, Bell, Cpu,
+  Hourglass, Workflow, Bell, Cpu, Blocks,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useFlowStore } from '../store/flowStore';
 import { useSettingsStore } from '../store/settingsStore';
 import { useSecretsStore } from '../store/secretsStore';
 import { useRunLogStore } from '../store/runLogStore';
+import { useCustomNodeStore } from '../store/customNodeStore';
 import { runFlow, type RunHandle } from '../lib/executor';
 import { registerEditorCallback } from '../lib/backgroundRunner';
 import { nodeTypes } from './nodes';
@@ -184,7 +185,7 @@ interface ToolbarProps {
   canUndo: boolean; canRedo: boolean; hasTrigger: boolean;
   snapEnabled: boolean; canGroup: boolean; canUngroup: boolean;
   onBack: () => void; onNameChange: (v: string) => void;
-  onAddNode: (t: NodeKind) => void;
+  onAddNode: (t: NodeKind, defId?: string) => void;
   onSave: () => void; onRun: () => void; onStop: () => void;
   onUndo: () => void; onRedo: () => void;
   onSnapToggle: () => void; onGroup: () => void; onUngroup: () => void;
@@ -193,6 +194,7 @@ interface ToolbarProps {
 function Toolbar({ flowName, isRunning, isDirty, canUndo, canRedo, hasTrigger, snapEnabled, canGroup, canUngroup, onBack, onNameChange, onAddNode, onSave, onRun, onStop, onUndo, onRedo, onSnapToggle, onGroup, onUngroup }: ToolbarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const customDefs = useCustomNodeStore(s => s.defs);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -286,6 +288,22 @@ function Toolbar({ flowName, isRunning, isDirty, canUndo, canRedo, hasTrigger, s
                 </button>
               );
             })}
+            {customDefs.length > 0 && (
+              <>
+                <div className="mx-3 my-1 h-px bg-wire" />
+                <p className="px-3 pt-1 pb-0.5 text-[9px] font-mono tracking-[0.14em] uppercase text-ink-ghost">Custom</p>
+                {customDefs.map(def => (
+                  <button key={def.id}
+                    onClick={() => { onAddNode('custom', def.id); setMenuOpen(false); }}
+                    className="flex items-center gap-2.5 w-full px-3 py-2.5 transition-colors text-left hover:bg-raised"
+                  >
+                    <span style={{ color: def.color }}><Blocks size={13} /></span>
+                    <span className="text-[12.5px] text-ink font-medium truncate">{def.label}</span>
+                    <span className="ml-auto text-[9px] font-mono px-1.5 py-0.5 rounded shrink-0" style={{ color: def.color, background: `${def.color}18` }}>{def.id}</span>
+                  </button>
+                ))}
+              </>
+            )}
           </div>
         )}
       </div>
@@ -757,13 +775,24 @@ export function FlowEditor() {
     pushHistoryDebounced();
   }
 
-  function handleAddNode(type: NodeKind) {
-    const item = ADD_ITEMS.find(i => i.type === type)!;
+  function handleAddNode(type: NodeKind, defId?: string) {
     const offset = nodes.length;
+    let nodeData: Record<string, unknown>;
+    if (type === 'custom' && defId) {
+      const def = useCustomNodeStore.getState().defs.find(d => d.id === defId);
+      const defaults: Record<string, unknown> = {};
+      for (const f of def?.fields ?? []) {
+        if (f.default !== undefined) defaults[f.name] = f.default;
+      }
+      nodeData = { label: def?.label ?? 'Custom', defId, ...defaults };
+    } else {
+      const item = ADD_ITEMS.find(i => i.type === type)!;
+      nodeData = { label: item.label, ...item.defaults };
+    }
     const newNode: Node = {
       id: `n-${Date.now()}`, type,
       position: { x: 80 + (offset % 4) * 220, y: 80 + Math.floor(offset / 4) * 120 },
-      data: { label: item.label, ...item.defaults },
+      data: nodeData,
     };
     setNodes(prev => {
       const next = [...prev, newNode];
@@ -995,11 +1024,20 @@ export function FlowEditor() {
 
       <NodePalette
         open={paletteOpen}
-        items={ADD_ITEMS.map(item => ({
-          ...item,
-          disabled: item.type === 'trigger' && nodes.some(n => n.type === 'trigger'),
-        }))}
-        onSelect={type => { handleAddNode(type); }}
+        items={[
+          ...ADD_ITEMS.map(item => ({
+            ...item,
+            disabled: item.type === 'trigger' && nodes.some(n => n.type === 'trigger'),
+          })),
+          ...useCustomNodeStore.getState().defs.map(def => ({
+            type: 'custom' as NodeKind,
+            icon: <Blocks size={13} />,
+            label: def.label,
+            color: def.color,
+            defId: def.id,
+          })),
+        ]}
+        onSelect={(type, defId) => { handleAddNode(type, defId); }}
         onClose={() => setPaletteOpen(false)}
       />
 

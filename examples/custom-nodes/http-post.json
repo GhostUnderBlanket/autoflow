@@ -1,0 +1,32 @@
+{
+  "id": "http-post",
+  "label": "HTTP POST",
+  "color": "#f59e0b",
+  "description": "Generic authenticated HTTP POST — sends upstream stdout as the request body",
+  "version": "1.0.0",
+  "fields": [
+    {
+      "name": "url",
+      "label": "URL",
+      "type": "text",
+      "placeholder": "https://api.example.com/events"
+    },
+    {
+      "name": "content_type",
+      "label": "Content-Type",
+      "type": "select",
+      "default": "application/json",
+      "options": ["application/json", "text/plain", "application/x-www-form-urlencoded"]
+    },
+    {
+      "name": "token",
+      "label": "Bearer token (optional)",
+      "type": "text",
+      "placeholder": "${secret:API_TOKEN}"
+    }
+  ],
+  "executor": {
+    "type": "js",
+    "fn": "async ({ fields, prev, log }) => { if (!fields.url) throw new Error('URL is required'); const headers = { 'Content-Type': fields.content_type }; if (fields.token) headers['Authorization'] = 'Bearer ' + fields.token; log(fields.url); const res = await fetch(fields.url, { method: 'POST', headers, body: prev }); const body = await res.text(); log('← ' + res.status + ' ' + res.statusText); if (!res.ok) throw new Error('HTTP ' + res.status + ': ' + body.slice(0, 200)); return body; }"
+  }
+}

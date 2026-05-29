@@ -1,6 +1,7 @@
 import { useMemo, useState, useCallback } from 'react';
-import { X, Timer, Globe, Terminal, GitBranch, Plus, Minus, Check, AlertTriangle, Play, Loader2, FolderOpen, ExternalLink, Repeat2, AppWindow, Hourglass, Workflow, Send, Bell, Cpu } from 'lucide-react';
+import { X, Timer, Globe, Terminal, GitBranch, Plus, Minus, Check, AlertTriangle, Play, Loader2, FolderOpen, ExternalLink, Repeat2, AppWindow, Hourglass, Workflow, Send, Bell, Cpu, Blocks } from 'lucide-react';
 import { useFlowStore } from '../store/flowStore';
+import { useCustomNodeStore } from '../store/customNodeStore';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import { useSettingsStore } from '../store/settingsStore';
 import { interpolate } from '../lib/interpolate';
@@ -38,6 +39,7 @@ const CFG = {
   subflow:   { color: '#818cf8', icon: <Workflow size={13} />,     label: 'Sub-flow'   },
   notify:    { color: '#eab308', icon: <Bell size={13} />,         label: 'Notify'     },
   envvar:    { color: '#22d3ee', icon: <Cpu size={13} />,          label: 'Env Var'    },
+  custom:    { color: '#888888', icon: <Blocks size={13} />,       label: 'Custom Node' },
 } as const;
 
 /* ─── Sub-components ─────────────────────────── */
@@ -1027,6 +1029,99 @@ function EnvVarFields({
   );
 }
 
+/* ─── Custom node fields ─────────────────────── */
+
+function CustomFields({
+  data, nodeId, upstream, onUpdate, flowVariables,
+}: {
+  data:           Record<string, unknown>;
+  nodeId:         string;
+  upstream:       ReturnType<typeof getUpstreamNodes>;
+  onUpdate:       (id: string, d: Record<string, unknown>) => void;
+  flowVariables?: Record<string, string>;
+}) {
+  const defId = (data.defId as string) ?? '';
+  const def = useCustomNodeStore(s => s.defs.find(x => x.id === defId));
+
+  if (!def) {
+    return (
+      <div className="rounded-md bg-danger/[.08] border border-danger/25 px-3 py-2.5">
+        <p className="text-[11px] text-danger font-mono">
+          Definition not found{defId ? `: "${defId}"` : ''}. Install the node definition in Settings → Custom Nodes.
+        </p>
+      </div>
+    );
+  }
+
+  function setField(name: string, value: unknown) {
+    onUpdate(nodeId, { ...data, [name]: value });
+  }
+
+  return (
+    <>
+      {def.description && (
+        <div className="rounded-md bg-raised/50 border border-wire/60 p-2.5">
+          <p className="text-[10.5px] text-ink-dim leading-relaxed">{def.description}</p>
+        </div>
+      )}
+      {def.fields.map(field => (
+        <div key={field.name}>
+          <FieldLabel>{field.label}</FieldLabel>
+          {(field.type === 'text' || field.type === 'textarea') && (
+            <RefField
+              value={(data[field.name] as string) ?? field.default ?? ''}
+              onChange={v => setField(field.name, v)}
+              upstream={upstream}
+              flowVariables={flowVariables}
+              placeholder={field.placeholder}
+              multiline={field.type === 'textarea'}
+            />
+          )}
+          {field.type === 'number' && (
+            <TextInput
+              value={String((data[field.name] as number | string) ?? field.default ?? '')}
+              onChange={v => setField(field.name, v)}
+              placeholder={field.placeholder}
+              mono
+            />
+          )}
+          {field.type === 'toggle' && (
+            <button
+              onClick={() => setField(field.name, !(data[field.name] as boolean))}
+              role="switch"
+              aria-checked={!!(data[field.name] as boolean)}
+              className={clsx(
+                'relative inline-flex items-center rounded-full transition-colors duration-200 w-[38px] h-[22px] focus:outline-none',
+                data[field.name] ? 'bg-accent' : 'bg-wire-lit',
+              )}
+            >
+              <span className={clsx(
+                'absolute w-[16px] h-[16px] rounded-full bg-canvas shadow transition-transform duration-200',
+                data[field.name] ? 'translate-x-[19px]' : 'translate-x-[3px]',
+              )} />
+            </button>
+          )}
+          {field.type === 'select' && (
+            <Select
+              value={(data[field.name] as string) ?? field.default ?? ''}
+              options={(field.options ?? []).map(o => ({ value: o, label: o }))}
+              onChange={v => setField(field.name, v)}
+              placeholder="— select —"
+            />
+          )}
+        </div>
+      ))}
+      <div className="rounded-md bg-raised/50 border border-wire/60 p-2.5">
+        <p className="text-[10px] text-ink-ghost leading-relaxed">
+          Uses{' '}
+          <span className="font-mono text-ink-dim">{def.executor.type === 'script' ? `${def.executor.shell} script` : 'JS function'}</span>
+          {' '}executor. Fields support <span className="font-mono">${'${prev}'}</span> and <span className="font-mono">${'${var:NAME}'}</span>.
+        </p>
+      </div>
+    </>
+  );
+}
+
 /* ─── Sub-flow fields ────────────────────────── */
 
 function SubflowFields({
@@ -1074,8 +1169,17 @@ export function NodePanel({ node, nodes, edges, onUpdate, onClose, flowVariables
   const safeNode = node!;
 
   const type = (safeNode.type ?? 'script') as keyof typeof CFG | string;
-  const cfg  = (CFG as Record<string, typeof CFG[keyof typeof CFG]>)[type] ?? CFG.script;
   const data = safeNode.data as Record<string, unknown>;
+
+  // For custom nodes, look up the def so we can use its color/label in the header.
+  const customDef = useCustomNodeStore(s =>
+    type === 'custom' ? s.defs.find(x => x.id === (data.defId as string)) : undefined,
+  );
+
+  const cfgBase = (CFG as Record<string, typeof CFG[keyof typeof CFG]>)[type] ?? CFG.script;
+  const cfg = customDef
+    ? { ...cfgBase, color: customDef.color, label: customDef.label }
+    : cfgBase;
 
   function set(key: string, value: unknown) {
     onUpdate(safeNode.id, { ...data, [key]: value });
@@ -1329,6 +1433,17 @@ export function NodePanel({ node, nodes, edges, onUpdate, onClose, flowVariables
         {/* ── Env Var ───────────────────────── */}
         {type === 'envvar' && (
           <EnvVarFields data={data} upstream={upstream} set={set} flowVariables={flowVariables} />
+        )}
+
+        {/* ── Custom node ───────────────────── */}
+        {type === 'custom' && (
+          <CustomFields
+            data={data}
+            nodeId={safeNode.id}
+            upstream={upstream}
+            onUpdate={onUpdate}
+            flowVariables={flowVariables}
+          />
         )}
 
       </div>

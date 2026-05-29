@@ -1,0 +1,26 @@
+{
+  "id": "json-extract",
+  "label": "JSON Extract",
+  "color": "#10b981",
+  "description": "Extract a value from upstream JSON using a dot-path (e.g. data.user.name)",
+  "version": "1.0.0",
+  "fields": [
+    {
+      "name": "path",
+      "label": "Dot-path",
+      "type": "text",
+      "placeholder": "data.user.name"
+    },
+    {
+      "name": "fallback",
+      "label": "Fallback (if missing)",
+      "type": "text",
+      "placeholder": "",
+      "default": ""
+    }
+  ],
+  "executor": {
+    "type": "js",
+    "fn": "async ({ fields, prev, log }) => { let obj; try { obj = JSON.parse(prev); } catch { throw new Error('Upstream output is not valid JSON'); } const keys = fields.path.split('.').filter(Boolean); let val = obj; for (const k of keys) { if (val == null || typeof val !== 'object') { val = undefined; break; } val = val[k]; } if (val === undefined || val === null) { if (fields.fallback !== '') { log('path not found, using fallback'); return fields.fallback; } throw new Error('Path \"' + fields.path + '\" not found in JSON'); } const out = typeof val === 'string' ? val : JSON.stringify(val); log(fields.path + ' = ' + out); return out; }"
+  }
+}

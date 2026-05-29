@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
-import { Check, RotateCcw, Globe, AlertTriangle, FolderOpen, Eye, EyeOff, RefreshCw, Download, BookOpen, Plus, Trash2, Lock } from 'lucide-react';
+import { Check, RotateCcw, Globe, AlertTriangle, FolderOpen, Eye, EyeOff, RefreshCw, Download, BookOpen, Plus, Trash2, Lock, Blocks } from 'lucide-react';
 import { useSecretsStore } from '../store/secretsStore';
 import { check as checkForUpdate, type Update } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
@@ -12,13 +12,16 @@ import { openPath } from '@tauri-apps/plugin-opener';
 import { useSettingsStore } from '../store/settingsStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { useFlowStore } from '../store/flowStore';
+import { useCustomNodeStore } from '../store/customNodeStore';
 import { getExampleFlows } from '../lib/exampleFlows';
+import { getExampleCustomNodes } from '../lib/exampleCustomNodes';
 import type { AppSettings } from '../types/settings';
 import type { ReactNode } from 'react';
+import type { CustomNodeDef } from '../types/customNode';
 
 /* ─── Category nav ───────────────────────────── */
 
-type Category = 'workspace' | 'rest' | 'shell' | 'window' | 'runlog' | 'secrets' | 'about';
+type Category = 'workspace' | 'rest' | 'shell' | 'window' | 'runlog' | 'secrets' | 'nodes' | 'about';
 
 const CATEGORIES: { id: Category; label: string; sub: string }[] = [
   { id: 'workspace', label: 'Workspace',         sub: 'where files live' },
@@ -27,6 +30,7 @@ const CATEGORIES: { id: Category; label: string; sub: string }[] = [
   { id: 'shell',     label: 'Shell & Execution', sub: '3 settings'  },
   { id: 'runlog',    label: 'Run Log',           sub: '1 setting'   },
   { id: 'secrets',   label: 'Secrets',           sub: '${secret:…}' },
+  { id: 'nodes',     label: 'Custom Nodes',      sub: 'extensions'  },
   { id: 'about',     label: 'About',             sub: 'info & keys' },
 ];
 
@@ -823,6 +827,209 @@ function SecretsSection() {
   );
 }
 
+/* ─── Custom Nodes section ───────────────────── */
+
+function CustomNodesSection() {
+  const { defs, installDef, removeDef, loadDefs } = useCustomNodeStore();
+  const wsPath = useWorkspaceStore(s => s.path);
+  const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [exBusy, setExBusy] = useState(false);
+
+  function flash(kind: 'ok' | 'err', msg: string) {
+    setFeedback({ kind, msg });
+    setTimeout(() => setFeedback(null), 4000);
+  }
+
+  async function handleImportExamples() {
+    setExBusy(true);
+    try {
+      const examples = getExampleCustomNodes();
+      const existing = new Set(defs.map(d => d.id));
+      const toAdd = examples.filter(e => !existing.has(e.id));
+      for (const def of toAdd) await installDef(def);
+      if (toAdd.length === 0) flash('ok', 'All example nodes are already installed.');
+      else flash('ok', `${toAdd.length} example node${toAdd.length !== 1 ? 's' : ''} installed.`);
+    } catch (e) {
+      flash('err', String(e));
+    } finally {
+      setExBusy(false);
+    }
+  }
+
+  async function handleImport() {
+    try {
+      const picked = await openDialog({
+        multiple: false,
+        filters:  [{ name: 'Custom Node Definition', extensions: ['json'] }],
+        title:    'Import custom node',
+      });
+      if (typeof picked !== 'string' || !picked) return;
+      const text = await invoke<string>('read_text_file', { path: picked });
+      const raw = JSON.parse(text) as CustomNodeDef;
+      if (!raw.id || !raw.label || !Array.isArray(raw.fields) || !raw.executor) {
+        flash('err', 'Invalid node definition — missing required fields (id, label, fields, executor).');
+        return;
+      }
+      await installDef(raw);
+      flash('ok', `"${raw.label}" installed.`);
+    } catch (e) {
+      flash('err', String(e));
+    }
+  }
+
+  async function handleRemove(def: CustomNodeDef) {
+    setRemoving(def.id);
+    try {
+      await removeDef(def.id);
+    } catch (e) {
+      flash('err', String(e));
+    } finally {
+      setRemoving(null);
+    }
+  }
+
+  async function openFolder() {
+    if (!wsPath) return;
+    try { await openPath(`${wsPath}/custom-nodes`); }
+    catch { /* folder may not exist yet */ }
+  }
+
+  return (
+    <div style={{ animation: 'fade-up 0.22s ease both' }}>
+      <SectionHead
+        title="Custom Nodes"
+        description="Import your own node types — define fields, color, and execution logic in a JSON file. Custom nodes appear in the Add Node menu and Ctrl+K palette."
+      />
+
+      {/* Installed nodes list */}
+      {defs.length > 0 && (
+        <div className="rounded-xl border border-wire overflow-hidden mb-6">
+          {defs.map((def, i) => (
+            <div
+              key={def.id}
+              className={clsx(
+                'flex items-center gap-3 px-4 py-3',
+                i < defs.length - 1 && 'border-b border-wire',
+              )}
+            >
+              <span
+                className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
+                style={{ background: `${def.color}18`, color: def.color }}
+              >
+                <Blocks size={13} />
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] font-semibold text-ink leading-snug">{def.label}</p>
+                <p className="text-[11px] text-ink-ghost font-mono mt-0.5">
+                  {def.id}{def.version ? ` · v${def.version}` : ''} · {def.fields.length} field{def.fields.length !== 1 ? 's' : ''} · {def.executor.type === 'script' ? `${def.executor.shell} script` : 'JS'}
+                </p>
+                {def.description && (
+                  <p className="text-[11px] text-ink-dim mt-0.5 leading-relaxed truncate">{def.description}</p>
+                )}
+              </div>
+              <button
+                onClick={() => void handleRemove(def)}
+                disabled={removing === def.id}
+                className="shrink-0 p-1.5 rounded-md text-ink-ghost hover:text-danger hover:bg-danger/5 transition-colors disabled:opacity-40"
+                title="Remove"
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {defs.length === 0 && (
+        <div className="rounded-xl border border-wire bg-raised/40 px-5 py-6 mb-6 text-center">
+          <Blocks size={20} className="text-ink-ghost mx-auto mb-2 opacity-50" />
+          <p className="text-[12.5px] text-ink-dim">No custom nodes installed.</p>
+          <p className="text-[11.5px] text-ink-ghost mt-1">Import a <span className="font-mono">.json</span> definition file to get started.</p>
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <button
+          onClick={() => void handleImport()}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors border border-accent/30 bg-accent/[.08] text-accent-soft hover:bg-accent/[.16]"
+        >
+          <Plus size={13} />
+          Import from file…
+        </button>
+        <button
+          onClick={() => void handleImportExamples()}
+          disabled={exBusy}
+          className={clsx(
+            'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors border',
+            exBusy
+              ? 'border-wire bg-raised text-ink-ghost cursor-not-allowed'
+              : 'border-accent/30 bg-accent/[.08] text-accent-soft hover:bg-accent/[.16]',
+          )}
+        >
+          <BookOpen size={13} />
+          Import examples ({getExampleCustomNodes().length})
+        </button>
+        <button
+          onClick={() => void loadDefs()}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors border border-wire bg-raised text-ink-dim hover:text-ink hover:border-wire-lit"
+          title="Re-scan custom-nodes directory"
+        >
+          <RefreshCw size={12} />
+          Reload
+        </button>
+        {wsPath && (
+          <button
+            onClick={() => void openFolder()}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors border border-wire bg-raised text-ink-dim hover:text-ink hover:border-wire-lit"
+          >
+            <FolderOpen size={12} />
+            Open folder
+          </button>
+        )}
+      </div>
+
+      {feedback && (
+        <p className={clsx(
+          'text-[11px] font-mono leading-relaxed mt-3',
+          feedback.kind === 'ok' ? 'text-success' : 'text-danger',
+        )}>
+          {feedback.msg}
+        </p>
+      )}
+
+      {/* Format reference */}
+      <div className="mt-8">
+        <p className="text-[9.5px] font-mono tracking-[0.14em] uppercase text-ink-ghost mb-3">Definition format</p>
+        <pre className="rounded-xl border border-wire bg-raised/40 p-4 text-[10.5px] font-mono text-ink-dim overflow-x-auto leading-relaxed">{`{
+  "id": "discord-webhook",
+  "label": "Discord Webhook",
+  "color": "#5865F2",
+  "description": "Send a message via Discord webhook",
+  "version": "1.0.0",
+  "fields": [
+    { "name": "url",     "label": "Webhook URL", "type": "text"     },
+    { "name": "content", "label": "Message",     "type": "textarea" }
+  ],
+  "executor": {
+    "type": "script",
+    "shell": "powershell",
+    "template": "Invoke-RestMethod -Uri '\${field.url}' -Method POST -Body (@{content='\${field.content}'} | ConvertTo-Json) -ContentType 'application/json'"
+  }
+}`}</pre>
+        <p className="text-[10.5px] text-ink-ghost mt-3 leading-relaxed">
+          Field types: <span className="font-mono text-ink-dim">text · textarea · number · toggle · select</span>
+          <br />
+          Executor types: <span className="font-mono text-ink-dim">script</span> (shell template) or <span className="font-mono text-ink-dim">js</span> (async arrow function).
+          <br />
+          In templates, use <span className="font-mono text-ink-dim">{'${field.NAME}'}</span> for field values and all standard tokens (<span className="font-mono text-ink-dim">{'${prev}'}</span>, <span className="font-mono text-ink-dim">{'${var:NAME}'}</span>, etc.).
+        </p>
+      </div>
+    </div>
+  );
+}
+
 /* ─── SettingsPage ────────────────────────────── */
 
 export function SettingsPage({ initialSection }: { initialSection?: Category } = {}) {
@@ -882,13 +1089,14 @@ export function SettingsPage({ initialSection }: { initialSection?: Category } =
           className="flex-1 overflow-auto px-10 py-6 max-w-3xl"
           style={{ animation: 'fade-up 0.2s ease both' }}
         >
-          {active === 'workspace' && <WorkspaceSection />}
-          {active === 'rest'      && <RestSection      />}
-          {active === 'shell'     && <ShellSection     />}
-          {active === 'window'    && <WindowSection    />}
-          {active === 'runlog'    && <RunLogSection    />}
-          {active === 'secrets'   && <SecretsSection   />}
-          {active === 'about'     && <AboutSection     />}
+          {active === 'workspace' && <WorkspaceSection    />}
+          {active === 'rest'      && <RestSection         />}
+          {active === 'shell'     && <ShellSection        />}
+          {active === 'window'    && <WindowSection       />}
+          {active === 'runlog'    && <RunLogSection       />}
+          {active === 'secrets'   && <SecretsSection      />}
+          {active === 'nodes'     && <CustomNodesSection  />}
+          {active === 'about'     && <AboutSection        />}
         </div>
       </div>
     </div>
